@@ -29,6 +29,11 @@ impl Rom {
         }
     }
 
+    /// Build a ROM from raw 4 KiB bank arrays. Used by gate tests.
+    pub fn from_banks(base: [u8; 4096], video: [u8; 4096], bank: RomBank) -> Self {
+        Rom { base, video, bank }
+    }
+
     /// Read a byte from the active bank. `offset` is 0–4095 relative to $F000.
     pub fn read(&self, offset: u16) -> u8 {
         let idx = (offset & 0x0FFF) as usize;

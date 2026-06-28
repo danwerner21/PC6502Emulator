@@ -53,8 +53,20 @@ impl XtIde {
         }
     }
 
+    fn trace_enabled() -> bool {
+        std::env::var("XTIDE_TRACE").map(|v| v == "1").unwrap_or(false)
+    }
+
     /// Read a register. `offset` is relative to $E300.
     pub fn read(&mut self, offset: u8) -> u8 {
+        let result = self.read_inner(offset);
+        if Self::trace_enabled() {
+            eprintln!("XtIde R off={:#04x} val={:#04x} drq={} pos={}", offset, result, self.drq, self.buf_pos);
+        }
+        result
+    }
+
+    fn read_inner(&mut self, offset: u8) -> u8 {
         match offset {
             0x00 => {
                 // Data port — return next byte from transfer buffer
@@ -91,6 +103,9 @@ impl XtIde {
 
     /// Write a register. `offset` is relative to $E300.
     pub fn write(&mut self, offset: u8, val: u8) {
+        if Self::trace_enabled() {
+            eprintln!("XtIde W off={:#04x} val={:#04x}", offset, val);
+        }
         // Probe writes to $E300–$E330 must not crash or corrupt disk state (BR-5).
         // Unknown offsets are silently discarded.
         match offset {
