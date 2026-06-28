@@ -143,6 +143,10 @@ impl Bus {
         }
     }
 
+    pub fn acia(&self) -> &Acia {
+        &self.acia
+    }
+
     pub fn acia_mut(&mut self) -> &mut Acia {
         &mut self.acia
     }

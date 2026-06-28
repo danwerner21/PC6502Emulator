@@ -88,7 +88,7 @@ impl Default for RtcPolicy {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     /// OQ-R0.1 — CPU part: nmos_6502 or cmos_65c02.
     #[serde(default)]
@@ -141,6 +141,25 @@ pub struct Config {
     /// RTC clock policy: host, fixed, or epoch.
     #[serde(default)]
     pub rtc_policy: RtcPolicy,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            cpu_subtype: CpuSubtype::Nmos6502,
+            cpu_hz: 1_000_000,
+            mmu_power_on_fill: MmuPowerOnFill::Random,
+            rom_bank: RomBank::Base,
+            open_bus: OpenBusPolicy::default(),
+            shadow_addr_low: true,
+            io_rom_always: false,
+            acia_variant: AciaVariant::R6551,
+            acia_cts_default: true,
+            disk_image: None,
+            rom_hex: None,
+            rtc_policy: RtcPolicy::Host,
+        }
+    }
 }
 
 fn default_cpu_hz() -> u64 {

@@ -6,8 +6,8 @@ use crate::rom::Rom;
 
 /// Top-level machine: owns the CPU, bus, and all peripherals.
 pub struct Machine {
-    cpu: Cpu,
-    bus: Bus,
+    pub cpu: Cpu,
+    pub bus: Bus,
 }
 
 impl Machine {
@@ -23,13 +23,46 @@ impl Machine {
         Machine { cpu, bus }
     }
 
-    /// Apply the RESET vector and start the main emulation loop.
-    /// Stub: full loop implemented in WI-M1.
+    /// Execute one instruction.  Returns cycles consumed.
+    pub fn step_one(&mut self) -> u32 {
+        // Safety: read and write callbacks are called sequentially by the CPU,
+        // never concurrently, so aliasing the bus pointer is sound.
+        let bus: *mut Bus = &mut self.bus;
+        let cpu = &mut self.cpu;
+        cpu.step(
+            |addr| unsafe { (*bus).read(addr) },
+            |addr, val| unsafe { (*bus).write(addr, val) },
+        )
+    }
+
+    /// Run with RESET and drain ACIA output to stdout in a loop.
     pub fn run(&mut self) {
         {
             let bus = &mut self.bus;
             self.cpu.reset(|addr| bus.read(addr));
         }
-        // Main loop placeholder — implemented in WI-M1.
+        loop {
+            self.step_one();
+            // Drain buffered serial output to stdout
+            let out = self.bus.acia_mut().drain_output();
+            if !out.is_empty() {
+                use std::io::Write;
+                let _ = std::io::stdout().write_all(&out);
+                let _ = std::io::stdout().flush();
+            }
+        }
+    }
+
+    /// Run up to `max_cycles` after RESET, returning total cycles executed.
+    pub fn run_until_cycles(&mut self, max_cycles: u64) -> u64 {
+        {
+            let bus = &mut self.bus;
+            self.cpu.reset(|addr| bus.read(addr));
+        }
+        let mut total: u64 = 0;
+        while total < max_cycles {
+            total += self.step_one() as u64;
+        }
+        total
     }
 }

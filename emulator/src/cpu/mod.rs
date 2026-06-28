@@ -22,15 +22,13 @@ impl Cpu {
         }
     }
 
-    /// Execute one instruction via the provided bus read/write callbacks.
-    /// Returns the number of cycles consumed.
-    /// Stub: full implementation in WI-M1.
-    pub fn step<R, W>(&mut self, _read: R, _write: W) -> u32
+    /// Execute one instruction.  Returns cycles consumed.
+    pub fn step<R, W>(&mut self, mut read: R, mut write: W) -> u32
     where
         R: FnMut(u16) -> u8,
         W: FnMut(u16, u8),
     {
-        0
+        opcodes::execute(self, &mut read, &mut write)
     }
 
     /// Drive the RESET sequence: load PC from $FFFC/$FFFD, set I flag.
