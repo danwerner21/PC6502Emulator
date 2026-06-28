@@ -6,10 +6,10 @@ use crate::config::{Config, MmuPowerOnFill};
 /// Each byte maps one 4 KiB logical page to a physical page number.
 /// 16 pages per task covers the full 64 KiB CPU address space.
 ///
-/// Edit window:    CPU $EFD0–$EFDF (16 bytes) — read/write the active task's map
+/// Edit window:    CPU $EFD0–$EFDF (16 bytes) — read/write the setup task's map
 /// Control regs:  CPU $EFE0–$EFE7
-///   $EFE0 — Task mask low byte (write → active_task = mask & 0x3F)
-///   $EFE1 — Task mask high byte (currently unused; mirrors $EFE0 behavior)
+///   $EFE0 — Active task register (write → active_task = val & 0x3F)
+///   $EFE1 — Setup task register (write → setup_task = val & 0x3F; selects edit window task)
 ///   $EFE2 — Enable register (write $01 → MMU enabled)
 ///   $EFE3 — (reserved)
 ///   $EFE4 — Status: bits[5:0] = active task, bit[7] = enabled
@@ -17,6 +17,7 @@ use crate::config::{Config, MmuPowerOnFill};
 pub struct Mmu {
     map: [u8; 1024],
     active_task: u8,
+    setup_task: u8,
     enabled: bool,
     open_bus: u8,
 }
@@ -35,6 +36,7 @@ impl Mmu {
         Mmu {
             map: [fill_value; 1024],
             active_task: 0,
+            setup_task: 0,
             enabled: false,
             open_bus: cfg.open_bus.value,
         }
@@ -62,8 +64,8 @@ impl Mmu {
     pub fn io_read(&self, offset: u8) -> u8 {
         match offset {
             0x00..=0x0F => {
-                // Edit window — active task's map entries
-                let idx = (self.active_task as usize) * 16 + (offset as usize);
+                // Edit window — setup task's map entries (set by $EFE1)
+                let idx = (self.setup_task as usize) * 16 + (offset as usize);
                 self.map[idx]
             }
             0x10 => {
@@ -89,13 +91,17 @@ impl Mmu {
     pub fn io_write(&mut self, offset: u8, val: u8) {
         match offset {
             0x00..=0x0F => {
-                // Edit window
-                let idx = (self.active_task as usize) * 16 + (offset as usize);
+                // Edit window — setup task's map entries (set by $EFE1)
+                let idx = (self.setup_task as usize) * 16 + (offset as usize);
                 self.map[idx] = val;
             }
-            0x10 | 0x11 => {
-                // $EFE0/$EFE1 — task mask; active_task = val & 0x3F
+            0x10 => {
+                // $EFE0 — active task register; task mask clamps to 6 bits
                 self.active_task = val & 0x3F;
+            }
+            0x11 => {
+                // $EFE1 — setup task register; selects which task's map the edit window exposes
+                self.setup_task = val & 0x3F;
             }
             0x12 => {
                 // $EFE2 — enable: bit 0 enables MMU translation
@@ -107,6 +113,10 @@ impl Mmu {
 
     pub fn active_task(&self) -> u8 {
         self.active_task
+    }
+
+    pub fn setup_task(&self) -> u8 {
+        self.setup_task
     }
 
     pub fn is_enabled(&self) -> bool {
