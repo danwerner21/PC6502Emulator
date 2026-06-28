@@ -1,0 +1,84 @@
+# PC6502 Emulator — Default Configuration
+#
+# All P0 and P1 open questions from system-reference.md §9 are exposed here as
+# named knobs.  Do NOT hard-code any of these values in source; all must be
+# runtime-settable.  Override any key by passing --config <file> on the CLI.
+
+# ── OQ-R0.1 ─────────────────────────────────────────────────────────────────
+# CPU part: nmos_6502 or cmos_65c02.
+# Affects undocumented opcodes, decimal-mode behaviour, reset cycle count, and
+# interrupt timing.  Set to nmos_6502 until hardware measurement confirms the
+# installed part.
+cpu_subtype = "nmos_6502"
+
+# ── OQ-R0.2 ─────────────────────────────────────────────────────────────────
+# CPU oscillator frequency in Hz.  The emulator does not enforce wall-clock
+# accuracy, but this knob is required for future timing-sensitive analysis
+# (baud-rate, RTC timebase, XT-IDE wait-state adequacy).
+cpu_hz = 1_000_000
+
+# ── OQ-R0.3 ─────────────────────────────────────────────────────────────────
+# MMU map SRAM contents at power-on.  Physical SRAM is volatile; map contents
+# before BIOS INITPAGES runs are indeterminate.
+# Options: "zero" | "random" | { fixed = N }
+# "random" uses a repeatable pseudo-random fill so tests remain deterministic.
+mmu_power_on_fill = "random"
+
+# ── OQ-R0.4 ─────────────────────────────────────────────────────────────────
+# Active K1 ROM bank at power-on: "base" or "video".
+# No hard-coded default is acceptable.  Change to "video" to test the VIDEO ROM
+# boot path (XT-IDE loader, M3 milestone).
+rom_bank = "base"
+
+# ── OQ-R0.5 ─────────────────────────────────────────────────────────────────
+# Open-bus byte returned for unmapped reads:
+#   $EFA0–$EFCF, $EFF0–$EFFF, unassigned MMU offsets, and physical holes above
+#   physical page $7F.
+# $EA (NOP) is the recommended first choice (R-6 mitigation).  $FF is another
+# common candidate.  $00 is NOT an acceptable implicit default.
+[open_bus]
+value = 0xEA
+
+# ── OQ-R0.6 ─────────────────────────────────────────────────────────────────
+# Shadow-address strap (P1 SHADOW ADDR jumper).
+# true = low-page assignment (firmware-compatible default).
+# Change to false only when the installed strap position is confirmed otherwise.
+shadow_addr_low = true
+
+# ── OQ-R0.7 ─────────────────────────────────────────────────────────────────
+# I/O and ROM overlay precedence over arbitrary MMU mappings.
+# false = identity-map-only behaviour (safe; confirmed working).
+# true  = I/O/ROM decode always wins regardless of MMU mapping (unconfirmed on
+#         hardware; enable only after physical validation).
+io_rom_always = false
+
+# ── OQ-R1.1 ─────────────────────────────────────────────────────────────────
+# ACIA hardware variant: "r6551" or "w65c51n".
+# The W65C51N has a silicon errata that affects the TX-ready bit; the emulator
+# models the confirmed polling contract regardless of this setting until hardware
+# measurement narrows the part.
+acia_variant = "r6551"
+
+# ── OQ-R1.4 ─────────────────────────────────────────────────────────────────
+# CTS signal default for the ACIA.
+# true = CTS asserted (high), which is firmware-compatible per the board jumper.
+# A false default deadlocks UART transmit; do NOT change without hardware evidence.
+acia_cts_default = true
+
+# ── Disk image (G-2 / plan-review gap fix) ───────────────────────────────────
+# Path to the raw flat binary disk image used by the XT-IDE controller.
+# Omit or comment out to run without a disk (XT-IDE transfers return zeros).
+# disk_image = "disk.img"
+
+# ── ROM HEX file ─────────────────────────────────────────────────────────────
+# Path to the Intel HEX file produced from rom.hex assembly.
+# The HEX file encodes 8 KiB; the emulator splits it into 4 KiB Base and VIDEO
+# banks.  Omit to run with a blank ($FF-filled) ROM.
+# rom_hex = "rom.hex"
+
+# ── RTC policy ───────────────────────────────────────────────────────────────
+# Clock source for the RTC-72421/72423:
+#   "host"  — mirror the host system clock (default)
+#   "fixed" — return a configured fixed epoch
+#   "epoch" — advance from a configured start time on each read
+rtc_policy = "host"
