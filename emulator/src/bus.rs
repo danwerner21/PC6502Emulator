@@ -154,4 +154,14 @@ impl Bus {
     pub fn mmu(&self) -> &Mmu {
         &self.mmu
     }
+
+    /// Read directly from the physical RAM array, bypassing the MMU.
+    /// Used by gate tests to verify physical memory written through MMU mappings.
+    pub fn phys_read(&self, phys: usize) -> u8 {
+        if phys < self.ram.len() {
+            self.ram[phys]
+        } else {
+            self.open_bus
+        }
+    }
 }
