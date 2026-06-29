@@ -78,7 +78,13 @@ acia_cts_default = true
 
 # ── RTC policy ───────────────────────────────────────────────────────────────
 # Clock source for the RTC-72421/72423:
-#   "host"  — mirror the host system clock (default)
-#   "fixed" — return a configured fixed epoch
-#   "epoch" — advance from a configured start time on each read
+#   "host"  — mirror the host system clock (default; R-5 mitigation)
+#   "fixed" — return a configured fixed epoch (use rtc_epoch below)
+#   "epoch" — advance from a configured start time (use rtc_epoch below)
 rtc_policy = "host"
+
+# ── RTC epoch ────────────────────────────────────────────────────────────────
+# Unix timestamp (seconds since 1970-01-01 00:00:00 UTC) used by the "fixed"
+# and "epoch" RTC policies.  $EA (NOP) is the first choice for open_bus (R-6).
+# Default: 2025-01-01 00:00:00 UTC.
+# rtc_epoch = 1735689600

@@ -141,6 +141,11 @@ pub struct Config {
     /// RTC clock policy: host, fixed, or epoch.
     #[serde(default)]
     pub rtc_policy: RtcPolicy,
+
+    /// Unix timestamp (seconds since 1970-01-01 UTC) used by `fixed` and `epoch`
+    /// RTC policies.  Default: 2025-01-01 00:00:00 UTC.
+    #[serde(default = "default_rtc_epoch")]
+    pub rtc_epoch: u64,
 }
 
 impl Default for Config {
@@ -170,6 +175,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_rtc_epoch() -> u64 {
+    1_735_689_600 // 2025-01-01 00:00:00 UTC
+}
+
 impl Config {
     pub fn load() -> Self {
         let args: Vec<String> = std::env::args().collect();
@@ -180,5 +189,9 @@ impl Config {
         } else {
             Config::default()
         }
+    }
+
+    pub fn from_toml_str(s: &str) -> Self {
+        toml::from_str(s).unwrap_or_default()
     }
 }
