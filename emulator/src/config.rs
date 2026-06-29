@@ -88,7 +88,7 @@ impl Default for RtcPolicy {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     /// OQ-R0.1 — CPU part: nmos_6502 or cmos_65c02.
     #[serde(default)]
@@ -141,6 +141,31 @@ pub struct Config {
     /// RTC clock policy: host, fixed, or epoch.
     #[serde(default)]
     pub rtc_policy: RtcPolicy,
+
+    /// Unix timestamp (seconds since 1970-01-01 UTC) used by `fixed` and `epoch`
+    /// RTC policies.  Default: 2025-01-01 00:00:00 UTC.
+    #[serde(default = "default_rtc_epoch")]
+    pub rtc_epoch: u64,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            cpu_subtype: CpuSubtype::Nmos6502,
+            cpu_hz: 1_000_000,
+            mmu_power_on_fill: MmuPowerOnFill::Random,
+            rom_bank: RomBank::Base,
+            open_bus: OpenBusPolicy::default(),
+            shadow_addr_low: true,
+            io_rom_always: false,
+            acia_variant: AciaVariant::R6551,
+            acia_cts_default: true,
+            disk_image: None,
+            rom_hex: None,
+            rtc_policy: RtcPolicy::Host,
+            rtc_epoch: default_rtc_epoch(),
+        }
+    }
 }
 
 fn default_cpu_hz() -> u64 {
@@ -149,6 +174,10 @@ fn default_cpu_hz() -> u64 {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_rtc_epoch() -> u64 {
+    1_735_689_600 // 2025-01-01 00:00:00 UTC
 }
 
 impl Config {
@@ -161,5 +190,9 @@ impl Config {
         } else {
             Config::default()
         }
+    }
+
+    pub fn from_toml_str(s: &str) -> Self {
+        toml::from_str(s).unwrap_or_default()
     }
 }

@@ -5,7 +5,7 @@ use crate::mmu::Mmu;
 use crate::peripherals::Peripherals;
 use crate::rom::Rom;
 use crate::rtc::Rtc;
-use crate::xt_ide::XtIde;
+pub use crate::xt_ide::XtIde;
 
 /// PC6502 system bus.
 ///
@@ -143,11 +143,29 @@ impl Bus {
         }
     }
 
+    pub fn acia(&self) -> &Acia {
+        &self.acia
+    }
+
     pub fn acia_mut(&mut self) -> &mut Acia {
         &mut self.acia
     }
 
     pub fn mmu(&self) -> &Mmu {
         &self.mmu
+    }
+
+    pub fn xt_ide_mut(&mut self) -> &mut XtIde {
+        &mut self.xt_ide
+    }
+
+    /// Read directly from the physical RAM array, bypassing the MMU.
+    /// Used by gate tests to verify physical memory written through MMU mappings.
+    pub fn phys_read(&self, phys: usize) -> u8 {
+        if phys < self.ram.len() {
+            self.ram[phys]
+        } else {
+            self.open_bus
+        }
     }
 }

@@ -29,6 +29,11 @@ impl Rom {
         }
     }
 
+    /// Build a ROM from raw 4 KiB bank arrays. Used by gate tests.
+    pub fn from_banks(base: [u8; 4096], video: [u8; 4096], bank: RomBank) -> Self {
+        Rom { base, video, bank }
+    }
+
     /// Read a byte from the active bank. `offset` is 0–4095 relative to $F000.
     pub fn read(&self, offset: u16) -> u8 {
         let idx = (offset & 0x0FFF) as usize;
@@ -39,8 +44,10 @@ impl Rom {
     }
 }
 
-/// Parse Intel HEX records into `buf`. Ignores unknown record types.
+/// Parse Intel HEX records into `buf`.
+/// rom.hex spans $6000-$7FFF; subtract $6000 so buf[0] == CPU $F000.
 fn parse_intel_hex(text: &str, buf: &mut [u8]) {
+    const HEX_BASE: usize = 0x6000;
     for line in text.lines() {
         let line = line.trim();
         if !line.starts_with(':') || line.len() < 11 {
@@ -54,12 +61,15 @@ fn parse_intel_hex(text: &str, buf: &mut [u8]) {
             continue;
         }
         let byte_count = bytes[0] as usize;
-        let address = (bytes[1] as usize) << 8 | (bytes[2] as usize);
+        let hex_addr = (bytes[1] as usize) << 8 | (bytes[2] as usize);
         let record_type = bytes[3];
         if record_type == 0x00 {
-            // Data record
+            if hex_addr < HEX_BASE {
+                continue;
+            }
+            let dest_base = hex_addr - HEX_BASE;
             for (i, &b) in bytes[4..4 + byte_count].iter().enumerate() {
-                let dest = address.wrapping_add(i);
+                let dest = dest_base + i;
                 if dest < buf.len() {
                     buf[dest] = b;
                 }

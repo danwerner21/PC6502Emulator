@@ -33,7 +33,7 @@ impl DiskImage {
         sector
     }
 
-    /// Write one 512-byte sector. Stub: full implementation in WI-M5.
+    /// Write one 512-byte sector to the in-memory image. Flush to persist.
     pub fn write_sector(&mut self, lba: u32, data: &[u8; 512]) {
         let offset = lba as usize * SECTOR_SIZE;
         if offset + SECTOR_SIZE > self.data.len() {
