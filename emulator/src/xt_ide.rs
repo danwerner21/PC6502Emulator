@@ -12,8 +12,9 @@ use crate::disk::DiskImage;
 ///   $06 — LBA 3 / Drive select (bits 27:24 in low nibble)
 ///   $07 — Status (read) / Command (write)
 ///
-/// Supported commands (WI-M1/M3 subset):
+/// Supported commands:
 ///   $20 — READ SECTORS
+///   $30 — WRITE SECTORS
 ///   $EF — SET FEATURES
 ///   $EC — IDENTIFY
 pub struct XtIde {
@@ -26,6 +27,8 @@ pub struct XtIde {
     transfer_buf: [u8; 512],
     buf_pos: usize,
     drq: bool,
+    write_mode: bool,
+    bad_sectors: Vec<u32>,
     disk: Option<DiskImage>,
     open_bus: u8,
 }
@@ -48,9 +51,23 @@ impl XtIde {
             transfer_buf: [0; 512],
             buf_pos: 0,
             drq: false,
+            write_mode: false,
+            bad_sectors: Vec::new(),
             disk,
             open_bus,
         }
+    }
+
+    /// Mark `lba` as bad: READ/WRITE SECTORS to that LBA will return ERR.
+    pub fn inject_bad_sector(&mut self, lba: u32) {
+        if !self.bad_sectors.contains(&lba) {
+            self.bad_sectors.push(lba);
+        }
+    }
+
+    /// Remove a previously-injected bad sector.
+    pub fn clear_bad_sector(&mut self, lba: u32) {
+        self.bad_sectors.retain(|&x| x != lba);
     }
 
     fn trace_enabled() -> bool {
@@ -109,7 +126,24 @@ impl XtIde {
         // Probe writes to $E300–$E330 must not crash or corrupt disk state (BR-5).
         // Unknown offsets are silently discarded.
         match offset {
-            0x00 => {} // Data write — stub for WI-M5
+            0x00 => {
+                // Data port write — accepted only during WRITE SECTORS transfer
+                if self.write_mode && self.buf_pos < 512 {
+                    self.transfer_buf[self.buf_pos] = val;
+                    self.buf_pos += 1;
+                    if self.buf_pos >= 512 {
+                        // All 512 bytes received — commit to disk
+                        let lba = self.lba_addr();
+                        if let Some(ref mut disk) = self.disk {
+                            disk.write_sector(lba, &self.transfer_buf);
+                        }
+                        self.write_mode = false;
+                        self.drq = false;
+                        self.status = DRDY;
+                        self.error = 0;
+                    }
+                }
+            }
             0x01 => self.features = val,
             0x02 => self.sector_count = val,
             0x03 => self.lba[0] = val,
@@ -127,6 +161,13 @@ impl XtIde {
             0x20 => {
                 // READ SECTORS
                 let lba = self.lba_addr();
+                if self.bad_sectors.contains(&lba) {
+                    self.status = DRDY | ERR;
+                    self.error = 0x04; // ABRT
+                    self.drq = false;
+                    self.write_mode = false;
+                    return;
+                }
                 if let Some(ref disk) = self.disk {
                     self.transfer_buf = disk.read_sector(lba);
                 } else {
@@ -134,6 +175,24 @@ impl XtIde {
                 }
                 self.buf_pos = 0;
                 self.drq = true;
+                self.write_mode = false;
+                self.status = DRDY | DRQ;
+                self.error = 0;
+            }
+            0x30 => {
+                // WRITE SECTORS — set DRQ to request 512-byte data transfer from CPU
+                let lba = self.lba_addr();
+                if self.bad_sectors.contains(&lba) {
+                    self.status = DRDY | ERR;
+                    self.error = 0x04; // ABRT
+                    self.drq = false;
+                    self.write_mode = false;
+                    return;
+                }
+                self.transfer_buf = [0; 512];
+                self.buf_pos = 0;
+                self.drq = true;
+                self.write_mode = true;
                 self.status = DRDY | DRQ;
                 self.error = 0;
             }
@@ -142,15 +201,28 @@ impl XtIde {
                 self.status = DRDY;
                 self.error = 0;
                 self.drq = false;
+                self.write_mode = false;
             }
             0xEC => {
-                // IDENTIFY — minimal 512-byte response (full block in WI-M5)
+                // IDENTIFY — 512-byte response per ATA spec
                 self.transfer_buf = [0; 512];
-                // Set model string at words 27–46 (bytes 54–93)
+                // Word 0 (bytes 0-1): general config — fixed disk
+                self.transfer_buf[0] = 0x5A;
+                self.transfer_buf[1] = 0x04;
+                // Word 49 (bytes 98-99): capabilities — LBA supported (bit 9 of word = bit 1 of byte 99)
+                self.transfer_buf[99] = 0x02;
+                // Words 60-61 (bytes 120-123): total LBA sectors (little-endian 32-bit)
+                let total = self.disk.as_ref().map(|d| d.sector_count()).unwrap_or(0);
+                self.transfer_buf[120] = (total & 0xFF) as u8;
+                self.transfer_buf[121] = ((total >> 8) & 0xFF) as u8;
+                self.transfer_buf[122] = ((total >> 16) & 0xFF) as u8;
+                self.transfer_buf[123] = ((total >> 24) & 0xFF) as u8;
+                // Words 27-46 (bytes 54-93): model string (40 bytes, space-padded)
                 let model = b"PC6502 DISK                             ";
                 self.transfer_buf[54..54 + model.len()].copy_from_slice(model);
                 self.buf_pos = 0;
                 self.drq = true;
+                self.write_mode = false;
                 self.status = DRDY | DRQ;
                 self.error = 0;
             }
@@ -158,6 +230,7 @@ impl XtIde {
                 // Unknown command
                 self.status = DRDY | ERR;
                 self.error = 0x04;
+                self.write_mode = false;
             }
         }
     }
