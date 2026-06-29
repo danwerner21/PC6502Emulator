@@ -163,6 +163,7 @@ impl Default for Config {
             disk_image: None,
             rom_hex: None,
             rtc_policy: RtcPolicy::Host,
+            rtc_epoch: default_rtc_epoch(),
         }
     }
 }
