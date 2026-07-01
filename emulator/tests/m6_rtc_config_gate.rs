@@ -72,14 +72,13 @@ fn rtc_fixed_matches_epoch() {
     assert_eq!(bus.read(0xEF9C), 2, "year tens (25)");
 }
 
-// REQ-M6 item 3 / BR-7: CH375 reads return open-bus and do not crash.
+// REQ-M6 item 3 / BR-7: CH375 reads do not crash; return 0x00 (no USB device present).
 #[test]
 fn ch375_returns_open_bus_no_crash() {
-    let mut cfg = Config::default();
-    cfg.open_bus.value = 0xAB;
+    let cfg = Config::default();
     let mut bus = blank_bus(cfg);
-    assert_eq!(bus.read(0xE260), 0xAB, "CH375 data port");
-    assert_eq!(bus.read(0xE261), 0xAB, "CH375 command/status port");
+    assert_eq!(bus.read(0xE260), 0x00, "CH375 data port (no device)");
+    assert_eq!(bus.read(0xE261), 0x00, "CH375 command/status port (no device)");
 }
 
 // REQ-M6 item 4 / BR-7: Multi-I/O $AA command → $55 response (keyboard self-test).

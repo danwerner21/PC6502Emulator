@@ -2,21 +2,33 @@ use crate::disk::DiskImage;
 
 /// XT-IDE controller at CPU $E300–$E30E.
 ///
-/// Register map (offsets from $E300):
-///   $00 — Data (16-bit port, accessed as two 8-bit reads/writes)
-///   $01 — Error / Features
-///   $02 — Sector Count
-///   $03 — LBA 0 (bits 7:0)
-///   $04 — LBA 1 (bits 15:8)
-///   $05 — LBA 2 (bits 23:16)
-///   $06 — LBA 3 / Drive select (bits 27:24 in low nibble)
-///   $07 — Status (read) / Command (write)
+/// Register map (offsets from $E300), matching the real XT-CF-LITE hardware:
+///   $00 — Data LO (low byte of 16-bit data port; advances transfer buffer)
+///   $01 — Data HI (high byte of 16-bit data port; advances transfer buffer)
+///   $02 — Error (read) / Features (write)
+///   $03 — (open bus)
+///   $04 — Sector Count
+///   $05 — (open bus)
+///   $06 — LBA bits 7:0
+///   $07 — (open bus)
+///   $08 — LBA bits 15:8
+///   $09 — (open bus)
+///   $0A — LBA bits 23:16
+///   $0B — (open bus)
+///   $0C — Device / LBA bits 27:24
+///   $0D — (open bus)
+///   $0E — Status (read) / Command (write)
 ///
 /// Supported commands:
 ///   $20 — READ SECTORS
 ///   $30 — WRITE SECTORS
 ///   $EF — SET FEATURES
 ///   $EC — IDENTIFY
+///
+/// Data access: both Data LO ($00) and Data HI ($01) advance the transfer
+/// buffer position by one byte per access, enabling the firmware's interleaved
+/// LO/HI read pattern (256 pairs × 2 = 512 bytes) as well as simple sequential
+/// reads (512 reads from LO alone).
 pub struct XtIde {
     status: u8,
     error: u8,
@@ -85,8 +97,9 @@ impl XtIde {
 
     fn read_inner(&mut self, offset: u8) -> u8 {
         match offset {
-            0x00 => {
-                // Data port — return next byte from transfer buffer
+            // Data LO and Data HI both read the next byte from the transfer buffer.
+            // The firmware interleaves LO/HI accesses; each advances buf_pos by one.
+            0x00 | 0x01 => {
                 if self.drq && self.buf_pos < 512 {
                     let b = self.transfer_buf[self.buf_pos];
                     self.buf_pos += 1;
@@ -101,13 +114,13 @@ impl XtIde {
                     0
                 }
             }
-            0x01 => self.error,
-            0x02 => self.sector_count,
-            0x03 => self.lba[0],
-            0x04 => self.lba[1],
-            0x05 => self.lba[2],
-            0x06 => self.lba[3],
-            0x07 => {
+            0x02 => self.error,
+            0x04 => self.sector_count,
+            0x06 => self.lba[0],
+            0x08 => self.lba[1],
+            0x0A => self.lba[2],
+            0x0C => self.lba[3],
+            0x0E => {
                 if self.drq {
                     DRDY | DRQ
                 } else {
@@ -126,8 +139,8 @@ impl XtIde {
         // Probe writes to $E300–$E330 must not crash or corrupt disk state (BR-5).
         // Unknown offsets are silently discarded.
         match offset {
-            0x00 => {
-                // Data port write — accepted only during WRITE SECTORS transfer
+            // Data LO and Data HI both write the next byte to the transfer buffer.
+            0x00 | 0x01 => {
                 if self.write_mode && self.buf_pos < 512 {
                     self.transfer_buf[self.buf_pos] = val;
                     self.buf_pos += 1;
@@ -144,13 +157,13 @@ impl XtIde {
                     }
                 }
             }
-            0x01 => self.features = val,
-            0x02 => self.sector_count = val,
-            0x03 => self.lba[0] = val,
-            0x04 => self.lba[1] = val,
-            0x05 => self.lba[2] = val,
-            0x06 => self.lba[3] = val,
-            0x07 => self.execute_command(val),
+            0x02 => self.features = val,
+            0x04 => self.sector_count = val,
+            0x06 => self.lba[0] = val,
+            0x08 => self.lba[1] = val,
+            0x0A => self.lba[2] = val,
+            0x0C => self.lba[3] = val,
+            0x0E => self.execute_command(val),
             _ => {} // Probe tolerance: ignore writes to unknown offsets
         }
     }
@@ -227,9 +240,10 @@ impl XtIde {
                 self.error = 0;
             }
             _ => {
-                // Unknown command
+                // Unknown command — set ERR, clear DRQ
                 self.status = DRDY | ERR;
                 self.error = 0x04;
+                self.drq = false;
                 self.write_mode = false;
             }
         }

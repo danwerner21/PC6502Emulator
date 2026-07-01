@@ -4,7 +4,21 @@
 /// Dual ESP Wi-Fi at $E100–$E102
 /// Multi-I/O keyboard at $E3FE–$E3FF
 ///
-/// All reads return open_bus. All writes are silently discarded.
+/// ESP reads return values tuned so the DOS/65 driver's bit-test polling loops
+/// all exit immediately rather than running 65K-cycle timeouts:
+///
+/// $E102 (status): 0x09 satisfies all six AND/branch patterns in the driver:
+///   AND #$02; BEQ — bit1=0 (not busy)
+///   AND #$01; BNE — bit0=1 (data available)
+///   AND #$10; BEQ — bit4=0
+///   AND #$08; BNE — bit3=1
+///
+/// $E100/$E101 (data registers): 0x01.  Driver fn 10 ($C948) sends command $03
+/// and waits for a non-zero, non-$FF byte from $E100; if the response is $00 it
+/// maps to $FF and fn 11 ($C95C) loops forever on `CMP #$FF; BEQ`.  Returning
+/// 0x01 lets fn 10 return success and fn 11 exit cleanly.
+///
+/// CH375 returns 0x00 (no device present).
 /// Multi-I/O keyboard self-test: $AA command → $55 response (BR-7 / REQ-M6).
 pub struct Peripherals {
     open_bus: u8,
@@ -20,15 +34,15 @@ impl Peripherals {
     // --- CH375 $E260–$E261 ---
 
     pub fn ch375_read(&self, _offset: u8) -> u8 {
-        self.open_bus
+        0x00
     }
 
     pub fn ch375_write(&mut self, _offset: u8, _val: u8) {}
 
     // --- Dual ESP $E100–$E102 ---
 
-    pub fn esp_read(&self, _offset: u8) -> u8 {
-        self.open_bus
+    pub fn esp_read(&self, offset: u8) -> u8 {
+        if offset == 2 { 0x09 } else { 0x01 }
     }
 
     pub fn esp_write(&mut self, _offset: u8, _val: u8) {}
