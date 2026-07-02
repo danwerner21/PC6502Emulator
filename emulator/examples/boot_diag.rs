@@ -1,12 +1,15 @@
-use emulator::{bus::Bus, config::{Config, RomBank}, cpu::Cpu, disk::DiskImage, emulator::Machine, rom::Rom};
+use emulator::{config::{Config, RomBank}, emulator::Machine};
 
 fn main() {
     let rom_path = std::env::var("PC6502_ROM_HEX").expect("set PC6502_ROM_HEX");
     let disk_path = std::env::var("PC6502_DISK_IMG").expect("set PC6502_DISK_IMG");
 
-    let rom = Rom::load_hex(&rom_path, RomBank::Video).unwrap();
-    let disk = DiskImage::load(&disk_path).unwrap();
-    let mut machine = Machine { cpu: Cpu::new(), bus: Bus::new(&Config::default(), rom, Some(disk)) };
+    let mut cfg = Config::default();
+    cfg.rom_bank = RomBank::Video;
+    cfg.rom_hex = Some(rom_path);
+    cfg.disk_image = Some(disk_path);
+
+    let mut machine = Machine::new(cfg);
     { let b = &mut machine.bus; machine.cpu.reset(|a| b.read(a)); }
 
     let mut total: u64 = 0;

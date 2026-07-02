@@ -145,10 +145,10 @@ fn m3_video_boot_and_60_sectors() {
     );
 
     // === Full emulation: VIDEO ROM boot loads 60 sectors then jumps to $0800 ===
-    let mut machine = Machine {
-        cpu: Cpu::new(),
-        bus: Bus::new(&Config::default(), build_video_rom(), Some(DiskImage::blank(100))),
-    };
+    let mut machine = Machine::from_parts(
+        Cpu::new(),
+        Bus::new(&Config::default(), build_video_rom(), Some(DiskImage::blank(100))),
+    );
     {
         let bus = &mut machine.bus;
         machine.cpu.reset(|addr| bus.read(addr));
@@ -200,10 +200,7 @@ fn m3_real_rom_video_uart_banner() {
         .expect("failed to load rom.hex for Video bank");
     let disk = DiskImage::load(&disk_path).expect("failed to load disk.img");
 
-    let mut machine = Machine {
-        cpu: Cpu::new(),
-        bus: Bus::new(&Config::default(), rom, Some(disk)),
-    };
+    let mut machine = Machine::from_parts(Cpu::new(), Bus::new(&Config::default(), rom, Some(disk)));
     {
         let bus = &mut machine.bus;
         machine.cpu.reset(|addr| bus.read(addr));

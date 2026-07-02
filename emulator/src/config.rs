@@ -146,6 +146,12 @@ pub struct Config {
     /// RTC policies.  Default: 2025-01-01 00:00:00 UTC.
     #[serde(default = "default_rtc_epoch")]
     pub rtc_epoch: u64,
+
+    /// Path passed via `--config`, recorded for startup diagnostics.
+    /// `None` means compiled defaults (no `--config` flag given). Not itself
+    /// a config file key.
+    #[serde(skip)]
+    pub config_path: Option<String>,
 }
 
 impl Default for Config {
@@ -164,6 +170,7 @@ impl Default for Config {
             rom_hex: None,
             rtc_policy: RtcPolicy::Host,
             rtc_epoch: default_rtc_epoch(),
+            config_path: None,
         }
     }
 }
@@ -184,12 +191,24 @@ impl Config {
     pub fn load() -> Self {
         let args: Vec<String> = std::env::args().collect();
         let path = args.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str().to_string());
-        if let Some(p) = path {
-            let text = std::fs::read_to_string(&p).unwrap_or_default();
-            toml::from_str(&text).unwrap_or_default()
+        let mut cfg = if let Some(p) = &path {
+            let text = std::fs::read_to_string(p).unwrap_or_default();
+            let mut cfg: Config = toml::from_str(&text).unwrap_or_default();
+            cfg.config_path = Some(p.clone());
+            cfg
         } else {
             Config::default()
+        };
+
+        // Env vars override the config file (see QUICKSTART.md ROM/Disk sections).
+        if let Ok(v) = std::env::var("PC6502_ROM_HEX") {
+            cfg.rom_hex = Some(v);
         }
+        if let Ok(v) = std::env::var("PC6502_DISK_IMG") {
+            cfg.disk_image = Some(v);
+        }
+
+        cfg
     }
 
     pub fn from_toml_str(s: &str) -> Self {

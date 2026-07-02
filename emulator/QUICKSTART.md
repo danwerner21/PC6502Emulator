@@ -164,3 +164,39 @@ LBA 256. Tools that scan from LBA 0 for CP/M signatures will miss it.
 `disk.img` covers drive A only (16,640 sectors). Drive B (LBAs
 $4100–$81FF) is beyond the image end. In-memory writes auto-extend but
 are not persisted. Full drive-B testing requires a larger image.
+
+---
+
+## Troubleshooting
+
+The emulator always prints four lines to stderr on startup — config path,
+ROM (path + bank, or a blank-ROM warning), disk (path + sector count, or
+"none"), and the reset vector fetched from ROM. Check these first; they
+catch most misconfiguration before it looks like a hang.
+
+**"Nothing appears on stdout."**  
+Check stderr for the `ROM: blank ($FF-filled)` warning. That means
+`PC6502_ROM_HEX` is unset and the config has no `rom_hex` key, so the CPU
+is executing an all-`$FF` ROM and will never produce output. Confirm
+`PC6502_ROM_HEX` is set and the path is correct relative to the current
+working directory (`emulator/` when using `cargo run`).
+
+**"Emulator hangs after the banner."**  
+Likely waiting on the disk. Check the `Disk:` startup line on stderr —
+if it says "none", confirm `PC6502_DISK_IMG` is set and `disk.img`
+exists at that path.
+
+**"No output at all, not even the ROM banner."**  
+Run with `--debug` and watch the heartbeat lines on stderr: if `PC` is
+stuck near `$FFFF` (or never advances), the ROM is blank; if `PC` cycles
+through the same small range of addresses, the CPU is looping (e.g.
+waiting on a peripheral that never responds).
+
+```bash
+PC6502_ROM_HEX=../PC6502_firmware_source/rom.hex \
+  cargo run --release -- --config config/default.toml --debug
+```
+
+**"DOS/65 output stops after the banner."**  
+See Known Quirks above: the zero-page `$3A` dispatch byte must be `$04`,
+and the task-1 driver copy at physical `$10000` must be non-zero.

@@ -227,10 +227,10 @@ fn m5_disk_io_gate() {
     // reading it back directly after the CPU halts.
 
     let disk = DiskImage::blank(20000);
-    let mut machine = Machine {
-        cpu: Cpu::new(),
-        bus: Bus::new(&Config::default(), build_write_rom(), Some(disk)),
-    };
+    let mut machine = Machine::from_parts(
+        Cpu::new(),
+        Bus::new(&Config::default(), build_write_rom(), Some(disk)),
+    );
     {
         let bus = &mut machine.bus;
         machine.cpu.reset(|addr| bus.read(addr));
@@ -281,10 +281,7 @@ fn boot_to_a_prompt() -> Option<Machine> {
         .expect("failed to load rom.hex for Video bank");
     let disk = DiskImage::load(&disk_path).expect("failed to load disk.img");
 
-    let mut machine = Machine {
-        cpu: Cpu::new(),
-        bus: Bus::new(&Config::default(), rom, Some(disk)),
-    };
+    let mut machine = Machine::from_parts(Cpu::new(), Bus::new(&Config::default(), rom, Some(disk)));
     {
         let bus = &mut machine.bus;
         machine.cpu.reset(|addr| bus.read(addr));

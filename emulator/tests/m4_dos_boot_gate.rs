@@ -173,10 +173,10 @@ fn m4_dos65_cold_boot_prompt() {
     assert_eq!(bus.read(0xE3FF), open_bus, "Multi-I/O $E3FF must return open_bus");
 
     // === Section 2: full emulation — synthetic DOS/65 boot ROM ===
-    let mut machine = Machine {
-        cpu: Cpu::new(),
-        bus: Bus::new(&Config::default(), build_dos65_boot_rom(), None),
-    };
+    let mut machine = Machine::from_parts(
+        Cpu::new(),
+        Bus::new(&Config::default(), build_dos65_boot_rom(), None),
+    );
     {
         let bus = &mut machine.bus;
         machine.cpu.reset(|addr| bus.read(addr));
@@ -287,10 +287,7 @@ fn m4_real_boot_far_call_and_sim_init() {
         .expect("failed to load rom.hex for Video bank");
     let disk = DiskImage::load(&disk_path).expect("failed to load disk.img");
 
-    let mut machine = Machine {
-        cpu: Cpu::new(),
-        bus: Bus::new(&Config::default(), rom, Some(disk)),
-    };
+    let mut machine = Machine::from_parts(Cpu::new(), Bus::new(&Config::default(), rom, Some(disk)));
     {
         let bus = &mut machine.bus;
         machine.cpu.reset(|addr| bus.read(addr));

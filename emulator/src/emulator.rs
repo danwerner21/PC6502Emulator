@@ -1,5 +1,5 @@
 use crate::bus::Bus;
-use crate::config::Config;
+use crate::config::{Config, RomBank};
 use crate::cpu::Cpu;
 use crate::disk::DiskImage;
 use crate::rom::Rom;
@@ -8,19 +8,87 @@ use crate::rom::Rom;
 pub struct Machine {
     pub cpu: Cpu,
     pub bus: Bus,
+    /// When true, `run()` prints a one-line CPU status to stderr every 1000 cycles.
+    pub debug: bool,
+    diag: StartupDiag,
+}
+
+/// How the machine ended up configured, captured in `new()` for the startup
+/// diagnostics `run()` prints — `Config` itself is consumed before `run()`.
+struct StartupDiag {
+    config_path: Option<String>,
+    rom_hex_path: Option<String>,
+    rom_loaded: bool,
+    rom_bank: RomBank,
+    disk_path: Option<String>,
+    disk_sectors: Option<u32>,
+}
+
+fn rom_bank_str(bank: &RomBank) -> &'static str {
+    match bank {
+        RomBank::Base => "base",
+        RomBank::Video => "video",
+    }
+}
+
+/// Render the last ACIA byte emitted for the `--debug` heartbeat line.
+fn format_last_acia(byte: Option<u8>) -> String {
+    match byte {
+        None => "-".to_string(),
+        Some(b) if (0x20..=0x7E).contains(&b) => (b as char).to_string(),
+        Some(b) => format!("\\x{:02X}", b),
+    }
 }
 
 impl Machine {
     pub fn new(cfg: Config) -> Self {
-        let rom = match &cfg.rom_hex {
-            Some(path) => Rom::load_hex(path, cfg.rom_bank.clone())
-                .unwrap_or_else(|_| Rom::blank(cfg.rom_bank.clone())),
-            None => Rom::blank(cfg.rom_bank.clone()),
+        let rom_hex_path = cfg.rom_hex.clone();
+        let rom_load_result = cfg
+            .rom_hex
+            .as_ref()
+            .map(|path| Rom::load_hex(path, cfg.rom_bank.clone()));
+        let rom_loaded = matches!(rom_load_result, Some(Ok(_)));
+        let rom = match rom_load_result {
+            Some(Ok(r)) => r,
+            _ => Rom::blank(cfg.rom_bank.clone()),
         };
+
+        let disk_path = cfg.disk_image.clone();
         let disk = cfg.disk_image.as_ref().and_then(|p| DiskImage::load(p).ok());
+        let disk_sectors = disk.as_ref().map(|d| d.sector_count());
+
+        let diag = StartupDiag {
+            config_path: cfg.config_path.clone(),
+            rom_hex_path,
+            rom_loaded,
+            rom_bank: cfg.rom_bank.clone(),
+            disk_path,
+            disk_sectors,
+        };
+
         let bus = Bus::new(&cfg, rom, disk);
         let cpu = Cpu::new();
-        Machine { cpu, bus }
+        Machine { cpu, bus, debug: false, diag }
+    }
+
+    /// Construct directly from a CPU and bus, bypassing config-based ROM/disk
+    /// loading. For tests that build a synthetic ROM or bus in-memory rather
+    /// than loading one from a file; startup diagnostics report empty/blank
+    /// for a machine built this way.
+    pub fn from_parts(cpu: Cpu, bus: Bus) -> Self {
+        Machine {
+            cpu,
+            bus,
+            debug: false,
+            diag: StartupDiag {
+                config_path: None,
+                rom_hex_path: None,
+                rom_loaded: false,
+                rom_bank: RomBank::Base,
+                disk_path: None,
+                disk_sectors: None,
+            },
+        }
     }
 
     /// Execute one instruction.  Returns cycles consumed.
@@ -35,20 +103,68 @@ impl Machine {
         )
     }
 
+    /// Print config/ROM/disk/reset-vector diagnostics to stderr. Always runs
+    /// (independent of `--debug`) so a blank ROM or missing disk is visible
+    /// immediately instead of looking like a silent hang.
+    fn print_startup_diagnostics(&self) {
+        eprintln!(
+            "Config: {}",
+            self.diag.config_path.as_deref().unwrap_or("compiled defaults")
+        );
+        if self.diag.rom_loaded {
+            eprintln!(
+                "ROM: {} (bank: {})",
+                self.diag.rom_hex_path.as_deref().unwrap_or(""),
+                rom_bank_str(&self.diag.rom_bank)
+            );
+        } else {
+            eprintln!("ROM: blank ($FF-filled) — set PC6502_ROM_HEX or rom_hex in config");
+        }
+        match (self.diag.disk_path.as_deref(), self.diag.disk_sectors) {
+            (Some(path), Some(sectors)) => eprintln!("Disk: {} ({} sectors)", path, sectors),
+            _ => eprintln!("Disk: none — XT-IDE returns zeros"),
+        }
+        eprintln!("Reset vector: ${:04X}", self.cpu.pc);
+    }
+
     /// Run with RESET and drain ACIA output to stdout in a loop.
     pub fn run(&mut self) {
         {
             let bus = &mut self.bus;
             self.cpu.reset(|addr| bus.read(addr));
         }
+        self.print_startup_diagnostics();
+
+        let mut total: u64 = 0;
+        let mut next_debug_at: u64 = 1000;
+        let mut last_acia_byte: Option<u8> = None;
+
         loop {
-            self.step_one();
+            total += self.step_one() as u64;
+
             // Drain buffered serial output to stdout
             let out = self.bus.acia_mut().drain_output();
             if !out.is_empty() {
                 use std::io::Write;
                 let _ = std::io::stdout().write_all(&out);
                 let _ = std::io::stdout().flush();
+                last_acia_byte = out.last().copied();
+            }
+
+            if self.debug {
+                while total >= next_debug_at {
+                    eprintln!(
+                        "[{:>7}] PC={:04X} A={:02X} X={:02X} Y={:02X} SP={:02X}  last_acia='{}'",
+                        next_debug_at,
+                        self.cpu.pc,
+                        self.cpu.a,
+                        self.cpu.x,
+                        self.cpu.y,
+                        self.cpu.sp,
+                        format_last_acia(last_acia_byte)
+                    );
+                    next_debug_at += 1000;
+                }
             }
         }
     }
