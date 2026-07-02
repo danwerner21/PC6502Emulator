@@ -81,6 +81,15 @@ Serial output appears on stdout. The Base ROM prints the Supermon banner
 and prompt `>` then blocks on ACIA RX input; type commands via stdin
 (piped or interactive — the emulator polls `$EF85` RDRF).
 
+When stdin is a real terminal, the emulator puts it in raw mode and feeds
+each keypress to ACIA RX immediately — no Enter needed. **Ctrl-C exits**
+the emulator (it's delivered as a plain byte rather than a signal, since raw
+mode disables the terminal's own SIGINT handling); **Ctrl-D** also exits.
+When piping input, send it after the boot banner/prompt has appeared —
+bytes that arrive before the ROM's own serial init (`SERIALINIT`) completes
+are cleared by its ACIA reset, same as a real UART would drop bytes that
+arrive before it's initialized.
+
 **Full boot — VIDEO ROM + disk, reach DOS/65 `A>` prompt:**
 
 ```bash

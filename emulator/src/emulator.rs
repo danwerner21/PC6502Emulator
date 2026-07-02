@@ -3,6 +3,8 @@ use crate::config::{Config, RomBank};
 use crate::cpu::Cpu;
 use crate::disk::DiskImage;
 use crate::rom::Rom;
+use std::sync::mpsc;
+use std::thread;
 
 /// Top-level machine: owns the CPU, bus, and all peripherals.
 pub struct Machine {
@@ -38,6 +40,39 @@ fn format_last_acia(byte: Option<u8>) -> String {
         Some(b) if (0x20..=0x7E).contains(&b) => (b as char).to_string(),
         Some(b) => format!("\\x{:02X}", b),
     }
+}
+
+/// Restores the terminal from raw mode when dropped, including during panic
+/// unwinding, so a crash never leaves the user's shell in raw mode.
+struct RawModeGuard;
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        let _ = crossterm::terminal::disable_raw_mode();
+    }
+}
+
+/// Spawn a background thread that reads stdin byte-by-byte and forwards each
+/// byte over the returned channel. Used by `run()` to feed keystrokes into
+/// ACIA RX without blocking the CPU loop on stdin I/O.
+fn spawn_stdin_reader() -> mpsc::Receiver<u8> {
+    let (tx, rx) = mpsc::channel::<u8>();
+    thread::spawn(move || {
+        use std::io::Read;
+        let mut stdin = std::io::stdin();
+        let mut byte = [0u8; 1];
+        loop {
+            match stdin.read(&mut byte) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    if tx.send(byte[0]).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    rx
 }
 
 impl Machine {
@@ -127,13 +162,27 @@ impl Machine {
         eprintln!("Reset vector: ${:04X}", self.cpu.pc);
     }
 
-    /// Run with RESET and drain ACIA output to stdout in a loop.
+    /// Run with RESET, feed stdin into ACIA RX, and drain ACIA output to
+    /// stdout in a loop. Ctrl-C and Ctrl-D from stdin exit the loop cleanly.
     pub fn run(&mut self) {
         {
             let bus = &mut self.bus;
             self.cpu.reset(|addr| bus.read(addr));
         }
         self.print_startup_diagnostics();
+
+        // Raw mode delivers each keypress as soon as it's typed, without
+        // waiting for Enter. It also disables the terminal's own SIGINT
+        // handling, so Ctrl-C arrives as a plain byte (0x03) below instead
+        // of killing the process — that's why we check for it explicitly.
+        // If stdin isn't a real TTY (e.g. piped input) this fails and we
+        // fall back to plain reads; piped bytes still arrive without needing
+        // raw mode.
+        let _raw_mode_guard = crossterm::terminal::enable_raw_mode()
+            .ok()
+            .map(|_| RawModeGuard);
+
+        let stdin_rx = spawn_stdin_reader();
 
         let mut total: u64 = 0;
         let mut next_debug_at: u64 = 1000;
@@ -149,6 +198,21 @@ impl Machine {
                 let _ = std::io::stdout().write_all(&out);
                 let _ = std::io::stdout().flush();
                 last_acia_byte = out.last().copied();
+            }
+
+            // Feed keystrokes typed since the last cycle into ACIA RX.
+            let mut exit_requested = false;
+            for b in stdin_rx.try_iter() {
+                if b == 0x03 || b == 0x04 {
+                    // Ctrl-C / Ctrl-D: exit cleanly rather than delivering
+                    // to the guest.
+                    exit_requested = true;
+                    break;
+                }
+                self.bus.acia_mut().inject_rx(b);
+            }
+            if exit_requested {
+                break;
             }
 
             if self.debug {
