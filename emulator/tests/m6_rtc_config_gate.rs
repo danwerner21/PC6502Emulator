@@ -112,7 +112,7 @@ rom_bank = \"video\"\n\
 rtc_policy = \"host\"\n\
 [open_bus]\n\
 value = 234\n"; // 234 = 0xEA
-    let cfg = Config::from_toml_str(toml);
+    let cfg = Config::from_toml_str(toml).expect("valid TOML must parse");
     assert!(matches!(cfg.rom_bank, RomBank::Video), "rom_bank must be video");
     assert!(matches!(cfg.rtc_policy, RtcPolicy::Host), "rtc_policy must be host");
     assert_eq!(cfg.open_bus.value, 0xEA, "open_bus must be 0xEA");
