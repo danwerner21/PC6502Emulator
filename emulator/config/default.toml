@@ -9,7 +9,7 @@
 # Affects undocumented opcodes, decimal-mode behaviour, reset cycle count, and
 # interrupt timing.  Set to nmos_6502 until hardware measurement confirms the
 # installed part.
-cpu_subtype = "nmos_6502"
+cpu_subtype = "nmos6502"
 
 # ── OQ-R0.2 ─────────────────────────────────────────────────────────────────
 # CPU oscillator frequency in Hz.  The emulator does not enforce wall-clock
@@ -36,8 +36,7 @@ rom_bank = "base"
 #   physical page $7F.
 # $EA (NOP) is the recommended first choice (R-6 mitigation).  $FF is another
 # common candidate.  $00 is NOT an acceptable implicit default.
-[open_bus]
-value = 0xEA
+open_bus = { value = 0xEA }
 
 # ── OQ-R0.6 ─────────────────────────────────────────────────────────────────
 # Shadow-address strap (P1 SHADOW ADDR jumper).
@@ -68,13 +67,13 @@ acia_cts_default = true
 # ── Disk image (G-2 / plan-review gap fix) ───────────────────────────────────
 # Path to the raw flat binary disk image used by the XT-IDE controller.
 # Omit or comment out to run without a disk (XT-IDE transfers return zeros).
-# disk_image = "disk.img"
+disk_image = "/mnt/fileserver/Vintage/Projects/PC6502Emulator/emulator/disk_image/disk.img"
 
 # ── ROM HEX file ─────────────────────────────────────────────────────────────
 # Path to the Intel HEX file produced from rom.hex assembly.
 # The HEX file encodes 8 KiB; the emulator splits it into 4 KiB Base and VIDEO
 # banks.  Omit to run with a blank ($FF-filled) ROM.
-# rom_hex = "rom.hex"
+rom_hex = "/mnt/fileserver/Vintage/Projects/PC6502Emulator/emulator/disk_image/rom.hex"
 
 # ── RTC policy ───────────────────────────────────────────────────────────────
 # Clock source for the RTC-72421/72423:
@@ -87,4 +86,4 @@ rtc_policy = "host"
 # Unix timestamp (seconds since 1970-01-01 00:00:00 UTC) used by the "fixed"
 # and "epoch" RTC policies.  $EA (NOP) is the first choice for open_bus (R-6).
 # Default: 2025-01-01 00:00:00 UTC.
-# rtc_epoch = 1735689600
+rtc_epoch = 1735689600
