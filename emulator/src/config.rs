@@ -191,7 +191,10 @@ impl Config {
     pub fn load() -> Self {
         let args: Vec<String> = std::env::args().collect();
         let path = args.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str().to_string());
-        let mut cfg = Self::load_from_file(path.as_deref());
+        let mut cfg = match path {
+            Some(p) => Self::load_from_file_path(&p),
+            None => Config::default(),
+        };
 
         // Env vars override the config file (see QUICKSTART.md ROM/Disk sections).
         if let Ok(v) = std::env::var("PC6502_ROM_HEX") {
@@ -204,19 +207,17 @@ impl Config {
         cfg
     }
 
-    /// Read and parse the `--config` file, if any. Errors are reported on
-    /// stderr and fall back to compiled defaults rather than silently
-    /// pretending the file loaded (`config_path` stays `None` on failure so
+    /// Read and parse a config file at `path`. Errors are reported on stderr
+    /// and fall back to compiled defaults rather than silently pretending the
+    /// file loaded (`config_path` stays `None` on failure so
     /// `print_startup_diagnostics` reports "compiled defaults", not the path).
-    fn load_from_file(path: Option<&str>) -> Self {
-        let p = match path {
-            Some(p) => p,
-            None => return Config::default(),
-        };
-        let text = match std::fs::read_to_string(p) {
+    /// Exposed as `pub` (rather than folded into `load()`) so integration
+    /// tests can exercise real-file parsing without faking `argv`.
+    pub fn load_from_file_path(path: &str) -> Self {
+        let text = match std::fs::read_to_string(path) {
             Ok(t) => t,
             Err(e) => {
-                eprintln!("Config: ERROR — cannot read '{}': {} (using compiled defaults)", p, e);
+                eprintln!("Config: ERROR — cannot read '{}': {} (using compiled defaults)", path, e);
                 eprintln!("Config: cwd is {}", std::env::current_dir().unwrap_or_default().display());
                 return Config::default();
             }
@@ -224,11 +225,11 @@ impl Config {
         let mut cfg: Config = match toml::from_str(&text) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Config: ERROR — failed to parse '{}': {} (using compiled defaults)", p, e);
+                eprintln!("Config: ERROR — failed to parse '{}': {} (using compiled defaults)", path, e);
                 return Config::default();
             }
         };
-        cfg.config_path = Some(p.to_string());
+        cfg.config_path = Some(path.to_string());
         cfg
     }
 
