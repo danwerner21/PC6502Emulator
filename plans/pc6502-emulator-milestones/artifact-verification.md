@@ -1,8 +1,8 @@
 # Artifact Verification and Integration Requirements
 
-**Bead**: mc-0sj  
-**Date**: 2026-06-29  
-**Produced by**: investigator-2  
+**Bead**: pe-by4 (corrects mc-0sj / investigator-2 version)  
+**Date**: 2026-07-02  
+**Produced by**: investigator-adhoc-e8fcdb1f10  
 
 ---
 
@@ -15,15 +15,42 @@
 | Size | 8,519,680 bytes |
 | Format | Raw flat binary (confirmed; `file` reports "data") |
 | Sector size | 512 bytes |
-| Sector count | **16,640** |
+| Sector count | **16,640** (= 0x4100; exactly one DOS/65 slice) |
 | Created | 2026-06-22 |
 
-**LBA 0 content — correction to bead description:**  
-The bead stated "valid CP/M directory at LBA 0." This is **incorrect**. LBA 0 contains 6502 machine code (the boot loader at $0800). The first 8 bytes (`$A9 $00 $8D $E0 $EF $A9 $01 $8D`) match exactly the first record of `pcdos65.s19` at address $0800 (`LDA #$00 / STA $EFE0`).
+**LBA 0 content:**  
+LBA 0 contains 6502 machine code. The first 8 bytes (`$A9 $00 $8D $E0 $EF $A9 $01 $8D`) match the first record of `pcdos65.s19` at $0800 (`LDA #$00 / STA $EFE0`). This is the boot loader, not a CP/M directory.
 
-**CP/M directory location:** LBA 60 (byte offset $007800), the first sector immediately following the 60-sector boot load area. LBAs 60–199+ are E5-filled (all bytes `$E5`), which is a valid but **empty** CP/M directory. No actual file entries are present; `DIR A:` on the DOS prompt would return "No File" rather than a populated listing.
+**Disk layout:**
 
-**Boot area:** LBAs 0–59 (60 sectors). 56 of 60 sectors contain non-zero data; 4 sectors are zero-filled (corresponding to gap regions in the S-record). LBA 59 is active (510 of 512 bytes non-zero).
+| Region | LBA range | Content |
+|---|---|---|
+| Boot load area | 0–59 | 60 sectors of DOS/65 OS payload; ROM copies to $0800–$7FFF |
+| Reserved system tracks (remainder) | 60–255 | $E5-filled; unused portion of the 16-track reserved area |
+| CP/M directory + data | 256–16,639 (0x0100+) | Active directory and file allocation area |
+
+**⚠ Correction to prior report (mc-0sj):** The mc-0sj version identified LBA 60 as the CP/M directory start and concluded the disk was empty. This is wrong. Per the DOS/65 spec (16 reserved tracks × 64 logical sectors × 128 bytes / 512 = 256 physical sectors), the directory starts at LBA **0x0100 (256)**. LBAs 60–255 are the tail of the reserved system area, not the directory.
+
+**CP/M directory at LBA 0x0100 — 29 active files:**
+
+| Filename | Filename | Filename |
+|---|---|---|
+| ALLOC.COM | EDIT.COM | RUN.COM |
+| ASM.COM | MICROCHE | S19.COM |
+| ASSIGN.COM | MKCOM.COM | SEDIT.COM |
+| BCOMPILE.COM | NVSET.COM | SPSC.COM |
+| COMPARE.COM | PASCAL.COM | TREK.BAS |
+| COPY.COM | PRPDRV.COM | ULTIMA.COM |
+| DBASIC.COM | PRUN.COM | WYRMHOLD.COM |
+| DBASICMA | — | XMR.COM |
+| DBASICMP.COM | — | XMS.COM |
+| DEBUG.COM | — | ZIP.COM |
+| — | — | ZIPTEST.Z3 |
+| — | — | ZORK1.Z3 |
+
+Directory holds 29 active entries; 481 deleted/unused ($E5) entries; 512 total slots.
+
+**Boot area:** LBAs 0–59 (60 sectors). The loader code at LBA 0 matches the $0800 S-record segment byte-for-byte.
 
 ---
 
@@ -75,12 +102,12 @@ The bead stated "valid CP/M directory at LBA 0." This is **incorrect**. LBA 0 co
 
 | Item | Status |
 |---|---|
-| `rom.hex` available | ✓ PRESENT (at `PC6502_firmware_source/rom.hex` and `emulator/disk_image/rom.hex`) |
+| `rom.hex` available | ✓ PRESENT (`PC6502_firmware_source/rom.hex` and `emulator/disk_image/rom.hex` — identical) |
 | `disk.img` available | ✓ PRESENT (60 sectors of boot code; loader at $0800) |
 | M3 gate test uses real rom.hex | ✗ NOT YET (uses `build_video_rom()` synthetic ROM) |
 | M3 gate test uses real disk.img | ✗ NOT YET (uses `DiskImage::blank(100)`) |
 
-**Assessment: READY TO IMPLEMENT.** Both artifacts are present. The existing m3 test uses a synthetic VIDEO ROM that bypasses UART initialization. To cover REQ-M3-5, an additional test section must load the real rom.hex with `RomBank::Video` and the real disk.img, then check that the serial banner appears before the 60-sector load completes (or before PC reaches $0800).
+**Assessment: READY TO IMPLEMENT.** An additional test section must load real `rom.hex` with `RomBank::Video` and real `disk.img`, run until a banner character appears in ACIA output, and assert non-empty output before PC reaches $0800.
 
 ---
 
@@ -120,11 +147,13 @@ The bead stated "valid CP/M directory at LBA 0." This is **incorrect**. LBA 0 co
 | Item | Status |
 |---|---|
 | `disk.img` available | ✓ PRESENT |
-| CP/M directory at LBA 60 | ✓ PRESENT (valid format, all E5) |
-| Actual files in CP/M directory | ✗ NONE (directory is empty/E5-filled) |
+| CP/M directory location | LBA 0x0100 (256) — correct per DOS/65 spec |
+| Actual files in CP/M directory | ✓ **29 FILES PRESENT** (see §1.1) |
 | M5 gate test uses real disk.img | ✗ NOT YET (uses `DiskImage::blank(20000)`) |
 
-**Assessment: PARTIALLY READY.** The disk image is structurally valid (CP/M directory at LBA 60, correct E5-fill format) but contains no files. The DOS/65 `DIR A:` command will execute without crashing, but will output a "no file" response rather than a populated listing. For the criterion to be fully satisfied (listing directory entries), at least one CP/M file must be placed on the disk. The disk should be populated before these tests run, or the criterion acceptance text should be updated to "DIR A: executes without crash and returns normally."
+**Assessment: READY TO IMPLEMENT.** Disk contains 29 real CP/M files. `DIR A:` will produce a populated listing. No disk-population step required.
+
+**Note:** The prior mc-0sj report concluded "PARTIALLY READY — no files on disk." That was wrong; it checked LBA 60 (reserved system area) instead of LBA 256 (actual directory).
 
 ---
 
@@ -135,10 +164,12 @@ The bead stated "valid CP/M directory at LBA 0." This is **incorrect**. LBA 0 co
 | Item | Status |
 |---|---|
 | `disk.img` available | ✓ PRESENT |
-| .COM file on disk | ✗ ABSENT (CP/M directory is empty) |
+| .COM files on disk | ✓ **24 .COM FILES PRESENT** (ALLOC, ASM, ASSIGN, BCOMPILE, COMPARE, COPY, DBASIC, DBASICMP, DEBUG, EDIT, MKCOM, NVSET, PASCAL, PRPDRV, PRUN, RUN, S19, SEDIT, SPSC, ULTIMA, WYRMHOLD, XMR, XMS, ZIP) |
 | M5 gate test uses real disk.img | ✗ NOT YET |
 
-**Assessment: BLOCKED — no .COM files exist on disk.** A `.COM` program must be placed in the disk image's CP/M filesystem at LBA 60+ before this criterion can be tested. The disk image itself is structurally sound; populating it requires a separate step (using `cpmtools`, `dd`, or a CP/M filesystem tool to write a file into the blank directory at LBA 60).
+**Assessment: READY TO IMPLEMENT.** Multiple .COM files are present. `S19.COM` (small, single extent) is a suitable minimal test candidate.
+
+**Note:** The prior mc-0sj report concluded "BLOCKED — no .COM files." This was wrong for the same directory-location reason.
 
 ---
 
@@ -203,13 +234,13 @@ The bead stated "valid CP/M directory at LBA 0." This is **incorrect**. LBA 0 co
 **New Section 3 — Full DOS/65 integration (REQ-M5-1, M5-2, M5-4):**
 1. Add `disk_image_path()` and `rom_hex_path()` helpers.
 2. Add `#[test]` fn `m5_dir_listing_and_drive_e_failure()`:
-   - Load real rom.hex (Base bank) and real disk.img.
+   - Load real `rom.hex` (Base bank) and real `disk.img`.
    - Boot to `A>` prompt.
-   - **REQ-M5-1**: Inject `DIR A:\r` via ACIA; run until output changes; assert output contains either file entries or a "no file" response without crash. *(Note: with the current empty disk, a file listing requires pre-populating disk.img; the test can assert "no crash" as a minimum.)*
+   - **REQ-M5-1**: Inject `DIR A:\r` via ACIA; run until output changes; assert output contains directory entries (29 files are present; expect names like `ZORK1`).
    - **REQ-M5-4**: Inject `E:\r` via ACIA; run until output changes; assert no hang and `A>` returns.
-3. Add `#[test]` fn `m5_com_load()` (may remain `#[ignore]` until disk.img is populated with at least one .COM):
-   - Requires disk.img to contain a valid .COM file at CP/M LBA 60+.
-   - Boot to `A>`, inject the .COM filename, assert it runs without hang.
+3. Add `#[test]` fn `m5_com_load()`:
+   - Load real `rom.hex` and real `disk.img`.
+   - Boot to `A>`, inject a small `.COM` name (e.g., `S19\r`), assert program runs without hang.
 
 ---
 
@@ -244,14 +275,17 @@ fn disk_image_path() -> String {
 | REQ-M3-5 (VIDEO UART banner) | rom.hex ✓, disk.img ✓ | — | New test section in m3 | **Ready to implement** |
 | REQ-M4-3 (far-call dispatcher) | rom.hex ✓, disk.img ✓ | — | New integration test in m4 | **Ready to implement** |
 | REQ-M4-4 (SIM cold-init) | rom.hex ✓, disk.img ✓ | — | New integration test in m4 | **Ready to implement** |
-| REQ-M5-1 (DIR A:) | disk.img ✓ | CP/M dir empty (E5) | New integration test in m5 | **Partially ready** — no files on disk |
-| REQ-M5-2 (.COM load) | disk.img ✓ | No .COM files | New integration test in m5 | **Blocked** — disk needs .COM file |
+| REQ-M5-1 (DIR A: listing) | disk.img ✓ | **29 files present ✓** | New integration test in m5 | **Ready to implement** |
+| REQ-M5-2 (.COM load) | disk.img ✓ | **24 .COM files present ✓** | New integration test in m5 | **Ready to implement** |
 | REQ-M5-4 (drive-E failure) | disk.img ✓ | — | New integration test in m5 | **Ready to implement** |
+
+All six deferred sub-criteria are **ready to implement** — no disk-population step needed.
 
 ---
 
 ## 6. Incidental Observations
 
-- **disk.img CP/M directory is empty.** REQ-M5-1 and REQ-M5-2 require file content. A follow-up task should populate disk.img with at least a minimal `.COM` program using `cpmtools` or a custom tool, then commit the updated image. Until then, the `m5_com_load` test cannot pass.
-- **rom.hex duplicated.** `emulator/disk_image/rom.hex` is byte-for-byte identical to `PC6502_firmware_source/rom.hex`. The duplicate may cause confusion about which copy is canonical; the `PC6502_firmware_source/` copy is the authoritative one (referenced by m1/m2 tests). The `disk_image/` copy may be removed or replaced with a symlink.
-- **Drive-B LBA range.** REQ-M5-6 states drive B uses LBAs $4100–$81FF. The disk.img is 16,640 sectors, so $81FF (= 33,279 decimal) is within range (16,640 > 33,279 is false — 16,640 < 33,279). The disk image is **too small** to cover the full drive-B range. The current m5 test writes to LBA $4100 (= 16,640 decimal) — exactly one sector past the end of the image (LBA 16,639 is the last). The emulator's `write_sector` auto-extends the in-memory buffer (`self.data.resize(…)`), so writes beyond 16,639 succeed in memory but are not on-disk until flush. This may require a larger disk image for full drive-B testing.
+- **All six deferred sub-criteria unblocked.** The prior mc-0sj report concluded REQ-M5-1 was "partially ready" and REQ-M5-2 was "blocked." Those assessments were based on checking LBA 60 (reserved system area, correctly $E5-filled) rather than LBA 256 (actual CP/M directory, populated with 29 files). No disk-population follow-up task is needed.
+- **rom.hex duplicated.** `emulator/disk_image/rom.hex` is byte-for-byte identical to `PC6502_firmware_source/rom.hex` (SHA-256: `0bc03df6...ea42ff08f`). The `PC6502_firmware_source/` copy is canonical (referenced by M1/M2 tests). The `disk_image/` copy may be removed or replaced with a symlink.
+- **Drive-B coverage.** disk.img is 16,640 sectors — exactly one DOS/65 slice (drive A, LBAs 0–$40FF). Drive B requires LBAs $4100–$81FF (16,640–33,279), beyond the image end. The emulator's `write_sector` auto-extends in memory (`self.data.resize(…)`), so the M5 B-range test passes in memory but drive-B data is not persisted in the committed disk.img.
+- **pcdos65.s19 is a provisioning reference, not a test input.** The S-record and disk.img may be from different build runs. The S-record documents the intended staging layout; disk.img is the authoritative runtime artifact.
