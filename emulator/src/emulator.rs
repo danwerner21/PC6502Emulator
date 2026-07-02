@@ -24,6 +24,8 @@ struct StartupDiag {
     rom_bank: RomBank,
     disk_path: Option<String>,
     disk_sectors: Option<u32>,
+    /// The configured disk path, set only when `DiskImage::load()` failed for it.
+    disk_error: Option<String>,
 }
 
 fn rom_bank_str(bank: &RomBank) -> &'static str {
@@ -89,8 +91,18 @@ impl Machine {
         };
 
         let disk_path = cfg.disk_image.clone();
-        let disk = cfg.disk_image.as_ref().and_then(|p| DiskImage::load(p).ok());
-        let disk_sectors = disk.as_ref().map(|d| d.sector_count());
+        let disk_result = cfg
+            .disk_image
+            .as_ref()
+            .map(|p| DiskImage::load(p).map(|d| (p.clone(), d)));
+        let (disk, disk_sectors, disk_error) = match disk_result {
+            Some(Ok((_, d))) => {
+                let sectors = d.sector_count();
+                (Some(d), Some(sectors), None)
+            }
+            Some(Err(_)) => (None, None, cfg.disk_image.clone()),
+            None => (None, None, None),
+        };
 
         let diag = StartupDiag {
             config_path: cfg.config_path.clone(),
@@ -99,6 +111,7 @@ impl Machine {
             rom_bank: cfg.rom_bank.clone(),
             disk_path,
             disk_sectors,
+            disk_error,
         };
 
         let bus = Bus::new(&cfg, rom, disk);
@@ -122,6 +135,7 @@ impl Machine {
                 rom_bank: RomBank::Base,
                 disk_path: None,
                 disk_sectors: None,
+                disk_error: None,
             },
         }
     }
@@ -146,18 +160,33 @@ impl Machine {
             "Config: {}",
             self.diag.config_path.as_deref().unwrap_or("compiled defaults")
         );
-        if self.diag.rom_loaded {
-            eprintln!(
+        match (self.diag.rom_hex_path.as_deref(), self.diag.rom_loaded) {
+            (Some(path), true) => eprintln!(
                 "ROM: {} (bank: {})",
-                self.diag.rom_hex_path.as_deref().unwrap_or(""),
+                path,
                 rom_bank_str(&self.diag.rom_bank)
-            );
-        } else {
-            eprintln!("ROM: blank ($FF-filled) — set PC6502_ROM_HEX or rom_hex in config");
+            ),
+            (Some(path), false) => eprintln!(
+                "ROM: WARNING — configured as \"{}\" but could not open (using blank $FF-filled ROM)",
+                path
+            ),
+            (None, _) => {
+                eprintln!("ROM: blank ($FF-filled) — set PC6502_ROM_HEX or rom_hex in config")
+            }
         }
         match (self.diag.disk_path.as_deref(), self.diag.disk_sectors) {
             (Some(path), Some(sectors)) => eprintln!("Disk: {} ({} sectors)", path, sectors),
-            _ => eprintln!("Disk: none — XT-IDE returns zeros"),
+            (Some(_), None) => {
+                let path = self.diag.disk_error.as_deref().unwrap_or("<unknown>");
+                let cwd = std::env::current_dir()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| "<unknown>".to_string());
+                eprintln!(
+                    "Disk: ERROR — configured as \"{}\" but could not open (check path is relative to cwd: {})",
+                    path, cwd
+                );
+            }
+            (None, _) => eprintln!("Disk: none — XT-IDE returns zeros"),
         }
         eprintln!("Reset vector: ${:04X}", self.cpu.pc);
     }
