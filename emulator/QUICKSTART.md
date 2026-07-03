@@ -10,6 +10,15 @@
 - `ca65`, `ld65`, `srec_cat` — only needed if you want to rebuild the firmware
   from source in `PC6502_firmware_source/`. Pre-built artifacts are already
   present in `disk_image/` and `PC6502_firmware_source/rom.hex`.
+- **On the `/mnt/fileserver` CIFS mount only**, one-time per host/checkout:
+  ```bash
+  emulator/scripts/ensure-local-cargo-target.sh
+  ```
+  Without this, `cargo run`/`build`/`test` can fail intermittently with
+  `Invalid argument (os error 22)`. See
+  [Troubleshooting](#troubleshooting) for why this step (still) can't be
+  automated away, and why it's a one-time thing rather than a per-session
+  export.
 
 ---
 
@@ -25,12 +34,6 @@ Run in-place without installing:
 ```bash
 cargo run --release -- --config config/default.toml
 ```
-
-> On the `/mnt/fileserver` CIFS mount, `cargo run` can fail
-> intermittently with `Invalid argument (os error 22)` /
-> `(never executed)`. That's a known CIFS quirk, not a build failure —
-> see [Troubleshooting](#troubleshooting) for the root cause and a
-> reliable fix (`CARGO_TARGET_DIR` on local disk).
 
 ---
 
@@ -237,26 +240,36 @@ single success or failure as conclusive, and do not rely on a fixed
 delay or a `cargo build` / direct-exec split as "the fix" — both were
 observed to still fail intermittently.
 
-**Reliable workaround: point `CARGO_TARGET_DIR` at local (non-CIFS)
-disk**, e.g. `/tmp` or `/var/tmp`. This keeps the compiled binary off
-the network mount entirely, so its exec never touches the CIFS client's
-write-back/cache path:
+**Default fix: `target-dir` is redirected to local (non-CIFS) disk
+automatically**, via a generated `.cargo/config.toml` (see
+Prerequisites above) — no environment variable to export, and nothing
+to remember each session. Run once per host/checkout:
 
 ```bash
-export CARGO_TARGET_DIR=/tmp/pc6502-target-$USER   # pick any local, non-CIFS path
-cargo run --release -- --config config/default.toml
+emulator/scripts/ensure-local-cargo-target.sh
 ```
 
-Confirmed reliable across repeated fresh rebuilds in testing (0 failures
-after the CIFS-only approach had already shown multiple failures under
-the same conditions). Source files are still read from
-`/mnt/fileserver` — only compiled artifacts move — so this doesn't
-require relocating the checkout. If you use this in a worktree, give
-each worktree its own `CARGO_TARGET_DIR` (don't share one path across
-concurrent worktrees/agents) to avoid lock contention on the build
-directory.
+This writes `emulator/.cargo/config.toml` with `build.target-dir`
+pointing at `${XDG_CACHE_HOME:-$HOME/.cache}/pc6502-emulator/cargo-target-<hash>`,
+where `<hash>` is derived from the crate's own absolute path so each
+git worktree under `worktrees/` gets its own target-dir instead of
+contending for one shared build lock. `$HOME` on lasever04 is local
+ext4, not CIFS, so the compiled binary's exec never touches the CIFS
+client's write-back/cache path. Confirmed reliable across repeated
+forced rebuilds in testing (0 `EINVAL` failures after the CIFS-only
+default had already reproduced the failure). Source files are still
+read from `/mnt/fileserver` — only compiled artifacts move — so this
+doesn't require relocating the checkout. The `cargo test` gate suite
+(M1–M6) uses the same target-dir and was run repeatedly with no
+regressions.
 
-This was not observed to affect the `cargo test` gate suite (M1–M6) in
-repeated full runs on this host, but the same flaky `EINVAL` risk
-applies in principle — if a test binary ever trips it, the fix is the
-same: point `CARGO_TARGET_DIR` at local disk.
+Why a one-time script run and not a fully zero-touch default: Cargo's
+`.cargo/config.toml` does not expand `~` or `${VAR}` in path values
+(verified directly against the cargo version installed here), so no
+single path committed to version control can be correct for every
+user/host — it would either be wrong for a different user or, if
+shared, permission-hostile. The generated config file is git-ignored
+(`emulator/.gitignore`) for the same reason. If `cargo run` ever fails
+with this error again, re-run the script above (idempotent, safe to
+re-run) and confirm `emulator/.cargo/config.toml` exists and points at
+a writable path.
