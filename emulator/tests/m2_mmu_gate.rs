@@ -13,14 +13,15 @@ use emulator::emulator::Machine;
 fn rom_hex_path() -> String {
     std::env::var("PC6502_ROM_HEX").unwrap_or_else(|_| {
         let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        // Walk up from the crate root looking for PC6502_firmware_source/rom.hex.
+        // Depth to the repo root varies: 1 level in the main checkout
+        // (PC6502Emulator/emulator), 3 levels in a worktree
+        // (PC6502Emulator/worktrees/<name>/emulator).
         manifest
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("PC6502_firmware_source/rom.hex")
+            .ancestors()
+            .map(|dir| dir.join("PC6502_firmware_source/rom.hex"))
+            .find(|candidate| candidate.exists())
+            .unwrap_or_else(|| manifest.join("PC6502_firmware_source/rom.hex"))
             .to_str()
             .unwrap()
             .to_string()
