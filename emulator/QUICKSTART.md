@@ -135,10 +135,14 @@ cd emulator/
 cargo test
 ```
 
-- **M1 and M2** tests resolve `rom.hex` by walking three directories up
-  from `CARGO_MANIFEST_DIR` to `PC6502_firmware_source/rom.hex`. They
-  will skip gracefully if the file is absent; set `PC6502_ROM_HEX` to
-  override.
+- **M1** resolves `rom.hex` by searching upward from `CARGO_MANIFEST_DIR`
+  for `PC6502_firmware_source/rom.hex`, so it finds the fixture
+  unmodified from both the main checkout and a worktree. **M2** still
+  walks a fixed three directories up, which only reaches the fixture
+  from a worktree; from the main checkout it fails its assertion unless
+  `PC6502_ROM_HEX` is set. Neither test skips silently if the fixture
+  can't be found — both fail with an assertion naming the path they
+  tried. Set `PC6502_ROM_HEX` to override the lookup for either.
 - **M3, M4, M5** integration tests using real artifacts need the disk
   image:
   ```bash
