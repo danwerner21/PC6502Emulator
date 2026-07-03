@@ -12,7 +12,7 @@
   present in `disk_image/` and `PC6502_firmware_source/rom.hex`.
 - **On the `/mnt/fileserver` CIFS mount only**, one-time per host/checkout:
   ```bash
-  emulator/scripts/ensure-local-cargo-target.sh
+  bash emulator/scripts/ensure-local-cargo-target.sh
   ```
   Without this, `cargo run`/`build`/`test` can fail intermittently with
   `Invalid argument (os error 22)`. See
@@ -246,7 +246,7 @@ Prerequisites above) — no environment variable to export, and nothing
 to remember each session. Run once per host/checkout:
 
 ```bash
-emulator/scripts/ensure-local-cargo-target.sh
+bash emulator/scripts/ensure-local-cargo-target.sh
 ```
 
 This writes `emulator/.cargo/config.toml` with `build.target-dir`
