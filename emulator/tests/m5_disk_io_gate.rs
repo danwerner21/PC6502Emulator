@@ -400,12 +400,31 @@ fn m5_dir_listing() {
 
 // REQ-M5-2: A valid .COM program loads and runs without hanging.
 //
-// This test requires a separately populated disk image containing at least one
-// .COM file in the CP/M directory at LBA 60.  The stock hardware disk image has
-// an empty CP/M directory (all E5-filled) and no .COM files.  This test is
-// therefore ignored until a populated disk image is available.
+// The stock disk image's CP/M directory is at LBA 0x0100 (256), not LBA 60:
+// it holds 29 active files, 24 of them .COM programs (see
+// plans/pc6502-emulator-milestones/artifact-verification.md, commit
+// f48cfbe). This test is no longer blocked on a populated disk image.
+//
+// S19.COM (DOS65_OS/dos65_utilities/s19.asm) is a thin wrapper that copies a
+// 16-byte stub to $0400 and jumps there; the stub calls the ROM's
+// Motorola-S-record loader (`JSR $FFF3`) and then warm-boots ($JMP $100).
+// The loader blocks on console input scanning for "S<digit>": it loads an
+// "S1" data record, or returns immediately on "S9" (RTS's the instant it
+// sees the '9', without validating or even consuming the rest of an S9
+// record). Feeding it "S9" is therefore the minimal way to prove the .COM
+// loaded and ran — real transient code was reached and executed, then
+// returned to DOS/65 — without needing a real S-record payload or an
+// interactive upload.
+//
+// The "S9" terminator must not be queued alongside the initial "S19\r"
+// command line: doing so let a stray byte get consumed somewhere during the
+// disk-load sequence before the loader ever ran (observed empirically —
+// LOADS19's first read then saw the wrong character and hung forever
+// waiting for more input that was never coming). Instead, run until
+// execution actually reaches $0800 (the DOS/65 TEA — i.e. S19.COM has been
+// loaded and dispatched) before injecting "S9", so it lands exactly when
+// the loader's blocking read is the next thing to consume it.
 #[test]
-#[ignore = "requires a disk image with at least one .COM file; stock disk has empty CP/M directory"]
 fn m5_com_load() {
     let Some(mut machine) = boot_to_a_prompt() else {
         eprintln!("m5_com_load: skipped (artifacts not found)");
@@ -414,9 +433,30 @@ fn m5_com_load() {
 
     let output_before = machine.bus.acia().output().len();
 
-    // Inject a .COM filename — replace with an actual name when a populated disk
-    // image is committed.
-    machine.bus.acia_mut().inject_rx_bytes(b"TEST.COM\r");
+    // "S19" (bare, no type) invokes S19.COM: DOS/65's CCM rejects an explicit
+    // type on a transient command (ccm215.asm chktyp/trnerr) and only
+    // defaults to COM when the filename is typed bare, so ".COM" must not be
+    // typed here.
+    machine.bus.acia_mut().inject_rx_bytes(b"S19\r");
+
+    const MAX_LOAD_CYCLES: u64 = 5_000_000;
+    let mut total: u64 = 0;
+    let mut reached_tea = false;
+    while total < MAX_LOAD_CYCLES {
+        total += machine.step_one() as u64;
+        if machine.cpu.pc == 0x0800 {
+            reached_tea = true;
+            break;
+        }
+    }
+    assert!(
+        reached_tea,
+        "REQ-M5-2: S19 was not dispatched to the TEA ($0800) within {} cycles; new output: {:?}",
+        MAX_LOAD_CYCLES,
+        String::from_utf8_lossy(&machine.bus.acia().output()[output_before..])
+    );
+
+    machine.bus.acia_mut().inject_rx_bytes(b"S9");
 
     const MAX_CYCLES: u64 = 10_000_000;
     let mut total: u64 = 0;
