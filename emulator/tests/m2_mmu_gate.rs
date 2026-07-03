@@ -109,6 +109,16 @@ fn m2_initpages_and_map_roundtrip() {
         t0_c
     );
 
+    // Acceptance criterion: Task-0 identity map — CPU $1234 reaches physical
+    // $01234 (full address, not just the page number).
+    let marker = 0x7E;
+    machine.bus.write(0x1234, marker);
+    assert_eq!(
+        machine.bus.phys_read(0x01234),
+        marker,
+        "Task-0 identity map: CPU $1234 should reach physical $01234"
+    );
+
     // REQ-M2-2: Task-0 edit window round-trip — write 16 known bytes, read back identical.
     machine.bus.write(0xEFE1, 0x00); // set setup task = 0
     let pattern: [u8; 16] = [
