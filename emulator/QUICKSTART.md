@@ -26,6 +26,12 @@ Run in-place without installing:
 cargo run --release -- --config config/default.toml
 ```
 
+> On the `/mnt/fileserver` CIFS mount, `cargo run` can fail
+> intermittently with `Invalid argument (os error 22)` /
+> `(never executed)`. That's a known CIFS quirk, not a build failure —
+> see [Troubleshooting](#troubleshooting) for the root cause and a
+> reliable fix (`CARGO_TARGET_DIR` on local disk).
+
 ---
 
 ## ROM (`rom.hex`)
@@ -209,3 +215,44 @@ PC6502_ROM_HEX=../PC6502_firmware_source/rom.hex \
 **"DOS/65 output stops after the banner."**  
 See Known Quirks above: the zero-page `$3A` dispatch byte must be `$04`,
 and the task-1 driver copy at physical `$10000` must be non-zero.
+
+**`cargo run`/a freshly-built binary fails with `error: could not
+execute process ... (never executed)` / `Invalid argument (os error
+22)`.**  
+This is a CIFS quirk on the `/mnt/fileserver` mount
+(`cache=strict,actimeo=1`), not a bug in the emulator, and not a
+regression — it reproduces from a clean, unmodified checkout on
+lasever04. It shows up as a transient `EINVAL` when a process opens a
+binary shortly after cargo last wrote to the `target/` directory
+(building or just re-checking freshness); a `cp` of a freshly-written
+binary can hit the same `EINVAL`. **It is flaky, not deterministic** —
+in testing, the exact same command/binary pair flipped between failing
+and succeeding across repeated attempts, including after the build had
+gone stale for tens of seconds and after a `sync`. Do not trust a
+single success or failure as conclusive, and do not rely on a fixed
+delay or a `cargo build` / direct-exec split as "the fix" — both were
+observed to still fail intermittently.
+
+**Reliable workaround: point `CARGO_TARGET_DIR` at local (non-CIFS)
+disk**, e.g. `/tmp` or `/var/tmp`. This keeps the compiled binary off
+the network mount entirely, so its exec never touches the CIFS client's
+write-back/cache path:
+
+```bash
+export CARGO_TARGET_DIR=/tmp/pc6502-target-$USER   # pick any local, non-CIFS path
+cargo run --release -- --config config/default.toml
+```
+
+Confirmed reliable across repeated fresh rebuilds in testing (0 failures
+after the CIFS-only approach had already shown multiple failures under
+the same conditions). Source files are still read from
+`/mnt/fileserver` — only compiled artifacts move — so this doesn't
+require relocating the checkout. If you use this in a worktree, give
+each worktree its own `CARGO_TARGET_DIR` (don't share one path across
+concurrent worktrees/agents) to avoid lock contention on the build
+directory.
+
+This was not observed to affect the `cargo test` gate suite (M1–M6) in
+repeated full runs on this host, but the same flaky `EINVAL` risk
+applies in principle — if a test binary ever trips it, the fix is the
+same: point `CARGO_TARGET_DIR` at local disk.
