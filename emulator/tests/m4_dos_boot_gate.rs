@@ -165,14 +165,30 @@ fn m4_dos65_cold_boot_prompt() {
     bus.write(0xE100, 0xFF);
     assert_eq!(bus.read(0xE100), 0x01, "ESP write must be discarded");
 
-    // Multi-I/O $E3FE-$E3FF: keyboard self-test $AA → $55; other reads return open_bus ($EA)
+    // Multi-I/O $E3FE-$E3FF: keyboard self-test $AA → $55; other data-port reads
+    // return open_bus ($EA). $E3FF (KBD_ST) models bit1 (busy, always clear) and
+    // bit0 (data-pending); other bits mirror open_bus.
     // Real firmware writes $AA to KBD_CMD ($E3FF, offset 1; bios_multi.asm:173-174,292)
     // and reads the $55 response from KBD_DAT ($E3FE, offset 0; bios_multi.asm:176,361).
     let open_bus = cfg.open_bus.value;
+    assert_eq!(
+        bus.read(0xE3FF) & 0x03,
+        0x00,
+        "Multi-I/O $E3FF must show not-busy/no-data-pending before any command"
+    );
     bus.write(0xE3FF, 0xAA); // self-test command on offset 1 (command port)
+    assert_eq!(
+        bus.read(0xE3FF) & 0x03,
+        0x01,
+        "Multi-I/O $E3FF must show not-busy/data-pending after $AA armed"
+    );
     assert_eq!(bus.read(0xE3FE), 0x55, "Multi-I/O kbd self-test must return $55");
     assert_eq!(bus.read(0xE3FE), open_bus, "Multi-I/O subsequent read must return open_bus");
-    assert_eq!(bus.read(0xE3FF), open_bus, "Multi-I/O $E3FF must return open_bus");
+    assert_eq!(
+        bus.read(0xE3FF) & 0x03,
+        0x00,
+        "Multi-I/O $E3FF must show not-busy/no-data-pending after $55 consumed"
+    );
 
     // === Section 2: full emulation — synthetic DOS/65 boot ROM ===
     let mut machine = Machine::from_parts(
@@ -325,6 +341,17 @@ fn m4_real_boot_far_call_and_sim_init() {
         "REQ-M4-4: 'A>' not seen after {} cycles; output: {:?}",
         MAX_CYCLES,
         String::from_utf8_lossy(machine.bus.acia().output())
+    );
+
+    // mc-hpg: real firmware's Multi-I/O keyboard probe (bios_multi.asm KBD_PROBE)
+    // must complete cleanly. All three of its failure messages ("NOT FOUND",
+    // "WRITE TIMEOUT", "READ TIMEOUT") contain "VT82C42"; the success message
+    // ("KBD: INITIALIZED.") does not. A synthetic bus-poke test cannot catch a
+    // busy/data-pending status-bit regression the way driving real firmware can.
+    let transcript = String::from_utf8_lossy(machine.bus.acia().output());
+    assert!(
+        !transcript.contains("VT82C42"),
+        "Multi-I/O keyboard probe reported an error during real-firmware boot: {transcript}"
     );
 
     // REQ-M4-3: far-call returned cleanly — task-0 DOS main was copied ($B800 non-zero)

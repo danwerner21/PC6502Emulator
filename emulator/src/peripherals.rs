@@ -20,6 +20,8 @@
 ///
 /// CH375 returns 0x00 (no device present).
 /// Multi-I/O keyboard self-test: $AA command → $55 response (BR-7 / REQ-M6).
+/// $E3FF (KBD_ST) models bits 0 (data-pending) and 1 (busy, always clear);
+/// other bits mirror open_bus.
 pub struct Peripherals {
     open_bus: u8,
     /// Keyboard self-test state: true when $AA command has been issued.
@@ -53,6 +55,20 @@ impl Peripherals {
         if offset == 0 && self.kbd_selftest_pending {
             self.kbd_selftest_pending = false;
             return 0x55;
+        }
+        if offset == 1 {
+            // KBD_ST: bit1 (IBF/"controller busy") is forced clear — this model
+            // processes command/data writes synchronously, so the controller is
+            // never busy. Bit0 (OBF/"output data pending") reflects whether a
+            // response byte is queued for KBD_DAT. Firmware's KBD_PUTCMD/
+            // KBD_PUTDATA (bios_multi.asm:269-323, AND #$02/BEQ on bit1) and
+            // KBD_GETDATA (bios_multi.asm:326-363, AND #$01/BNE on bit0) poll
+            // exactly these two bits with a finite timeout before giving up;
+            // previously both bits floated on open_bus regardless of state, so
+            // with the default open_bus ($EA, bit1=1) KBD_PUTCMD's busy-wait
+            // always timed out before ever issuing the $AA write (mc-hpg).
+            let obf = if self.kbd_selftest_pending { 0x01 } else { 0x00 };
+            return (self.open_bus & !0x03) | obf;
         }
         self.open_bus
     }

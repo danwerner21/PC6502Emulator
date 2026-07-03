@@ -109,6 +109,39 @@ fn multiio_selftest_wrong_port_is_not_armed() {
     );
 }
 
+// Regression guard for mc-hpg: with the default open_bus ($EA, bit1=1), real
+// firmware's KBD_PUTCMD busy-wait (bios_multi.asm:269-283, AND #$02/BEQ on
+// KBD_ST bit1) polled raw open_bus and always saw "busy", timing out before
+// ever writing $AA — producing "KBD: VT82C42 WRITE TIMEOUT." on every real
+// boot even though the mc-zrr offset fix was correct. $E3FF bit1 must read
+// clear regardless of open_bus's own bit1.
+#[test]
+fn multiio_status_never_reports_busy_even_when_open_bus_bit1_is_set() {
+    let mut cfg = Config::default();
+    cfg.open_bus.value = 0xEA; // bit1 = 1 in the raw open-bus byte
+    let mut bus = blank_bus(cfg);
+    assert_eq!(
+        bus.read(0xE3FF) & 0x02,
+        0x00,
+        "Multi-I/O $E3FF bit1 (busy) must read clear so KBD_PUTCMD's busy-wait succeeds"
+    );
+}
+
+// Regression guard for mc-hpg: $E3FF bit0 (data-pending) must reflect queued
+// self-test response state, not float on raw open_bus — otherwise KBD_GETDATA's
+// poll (bios_multi.asm:326-338, AND #$01/BNE on bit0) times out even after the
+// $AA command was correctly armed.
+#[test]
+fn multiio_status_data_pending_tracks_selftest_state() {
+    let cfg = Config::default();
+    let mut bus = blank_bus(cfg);
+    assert_eq!(bus.read(0xE3FF) & 0x01, 0x00, "no data pending before $AA");
+    bus.write(0xE3FF, 0xAA);
+    assert_eq!(bus.read(0xE3FF) & 0x01, 0x01, "data pending after $AA armed");
+    bus.read(0xE3FE); // consume the $55 response
+    assert_eq!(bus.read(0xE3FF) & 0x01, 0x00, "no data pending after $55 consumed");
+}
+
 // REQ-M6 item 5 / BR-6 / OQ-R0.5: unmapped $EFA0 returns configured open-bus value.
 #[test]
 fn open_bus_at_efa0() {
