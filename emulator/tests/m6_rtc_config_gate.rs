@@ -82,12 +82,31 @@ fn ch375_returns_open_bus_no_crash() {
 }
 
 // REQ-M6 item 4 / BR-7: Multi-I/O $AA command → $55 response (keyboard self-test).
+// Real firmware (bios_multi.asm:173-174,292 KBD_PUTCMD) writes $AA to KBD_CMD
+// ($E3FF, offset 1) and (bios_multi.asm:176,361 KBD_GETDATA) reads the response
+// from KBD_DAT ($E3FE, offset 0) — the two registers are distinct.
 #[test]
 fn multiio_selftest_aa_55() {
     let cfg = Config::default();
     let mut bus = blank_bus(cfg);
-    bus.write(0xE3FE, 0xAA);
+    bus.write(0xE3FF, 0xAA);
     assert_eq!(bus.read(0xE3FE), 0x55, "Multi-I/O $AA → $55");
+}
+
+// Regression guard for the offset bug fixed alongside this test: a write to
+// KBD_DAT ($E3FE), the address the emulator incorrectly checked before the
+// fix, must NOT arm the self-test response.
+#[test]
+fn multiio_selftest_wrong_port_is_not_armed() {
+    let cfg = Config::default();
+    let open_bus = cfg.open_bus.value;
+    let mut bus = blank_bus(cfg);
+    bus.write(0xE3FE, 0xAA);
+    assert_eq!(
+        bus.read(0xE3FE),
+        open_bus,
+        "Multi-I/O: $AA written to the data port ($E3FE) must not arm the self-test"
+    );
 }
 
 // REQ-M6 item 5 / BR-6 / OQ-R0.5: unmapped $EFA0 returns configured open-bus value.

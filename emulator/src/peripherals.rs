@@ -58,7 +58,9 @@ impl Peripherals {
     }
 
     pub fn multiio_write(&mut self, offset: u8, val: u8) {
-        if offset == 0 && val == 0xAA {
+        // Real firmware writes $AA to KBD_CMD ($E3FF, offset 1), not KBD_DAT
+        // ($E3FE, offset 0) — bios_multi.asm:173-174,292 (KBD_PUTCMD's STA KBD_CMD).
+        if offset == 1 && val == 0xAA {
             self.kbd_selftest_pending = true;
         }
     }

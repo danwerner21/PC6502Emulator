@@ -235,7 +235,7 @@ The PC6502 is a custom 6502-based single-board computer with a 64-task MMU, 512 
 1. DOS/65 RTC read call: the time/date command returns a plausible date matching the configured RTC policy.
 2. RTC write sequence: firmware `$02`/`$00`/`$00`/`$01`/`$05`/`$04` control sequence executes without fault; clock advances afterward.
 3. Absent CH375: DOS `C:` access returns failure; no crash or hang; DOS prompt returns.
-4. Keyboard self-test: injecting `$55` response to `$AA` command passes controller init; Multi-I/O init does not hang.
+4. Keyboard self-test: injecting `$55` response to `$AA` command passes controller init; Multi-I/O init does not hang. Verified at the register level: emulator writes `$AA` to `KBD_CMD` (`$E3FF`) and reads `$55` back from `KBD_DAT` (`$E3FE`), matching real firmware's port usage (`bios_multi.asm:173-176,292,361`; see `specifications/multio-card-investigation.md` mc-zrr fix). Not yet verified via full firmware execution: `$E3FF`'s status bits (busy/data-pending) are not modeled, so real firmware's `KBD_PUTCMD`/`KBD_GETDATA` polling loops resolve on the configured open-bus byte rather than genuine handshake state (tracked as item 2 of `multio-card-investigation.md` §7, out of scope here).
 5. Open-bus reads from `$EFA0–$EFCF` return the configured value (verified via Supermon memory examine).
 6. Emulator starts correctly from a config file specifying non-default K1 bank, open-bus `$EA`, and host-clock RTC.
 
@@ -248,7 +248,9 @@ The PC6502 is a custom 6502-based single-board computer with a 64-task MMU, 512 
 | REQ-M3 | covered |
 | REQ-M4 | covered |
 | REQ-M5 | covered |
-| REQ-M6 | covered |
+| REQ-M6 | covered* |
+
+\* REQ-M6 item 4 (Multi-I/O keyboard self-test): the `$E3FE`/`$E3FF` port-address bug (mc-zrr) is fixed and re-verified at the register level; full firmware-execution coverage still depends on the unimplemented `$E3FF` status-register model (`multio-card-investigation.md` §7 item 2).
 
 ## Out Of Scope
 

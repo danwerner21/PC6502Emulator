@@ -166,8 +166,10 @@ fn m4_dos65_cold_boot_prompt() {
     assert_eq!(bus.read(0xE100), 0x01, "ESP write must be discarded");
 
     // Multi-I/O $E3FE-$E3FF: keyboard self-test $AA → $55; other reads return open_bus ($EA)
+    // Real firmware writes $AA to KBD_CMD ($E3FF, offset 1; bios_multi.asm:173-174,292)
+    // and reads the $55 response from KBD_DAT ($E3FE, offset 0; bios_multi.asm:176,361).
     let open_bus = cfg.open_bus.value;
-    bus.write(0xE3FE, 0xAA); // self-test command on offset 0
+    bus.write(0xE3FF, 0xAA); // self-test command on offset 1 (command port)
     assert_eq!(bus.read(0xE3FE), 0x55, "Multi-I/O kbd self-test must return $55");
     assert_eq!(bus.read(0xE3FE), open_bus, "Multi-I/O subsequent read must return open_bus");
     assert_eq!(bus.read(0xE3FF), open_bus, "Multi-I/O $E3FF must return open_bus");
