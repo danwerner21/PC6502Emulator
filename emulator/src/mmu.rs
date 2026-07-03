@@ -1,5 +1,12 @@
 use crate::config::{Config, MmuPowerOnFill};
 
+/// Physical page selected by the I/O shadow overlay in the firmware-compatible
+/// default (MEM §2.2). `Bus` consults this when `io_rom_always` is set.
+pub const IO_PHYSICAL_PAGE: u8 = 0x0E;
+/// Physical page selected by the ROM boot overlay in the firmware-compatible
+/// default (MEM §2.2). `Bus` consults this when `io_rom_always` is set.
+pub const ROM_PHYSICAL_PAGE: u8 = 0x0F;
+
 /// 64-task MMU with 1,024-byte map store.
 ///
 /// Map store: 64 tasks × 16 bytes per task = 1,024 bytes.
@@ -13,13 +20,21 @@ use crate::config::{Config, MmuPowerOnFill};
 ///   $EFE2 — Enable register (write $01 → MMU enabled)
 ///   $EFE3 — (reserved)
 ///   $EFE4 — Status: bits[5:0] = active task, bit[7] = enabled
-///   $EFE5–$EFE7 — (reserved)
+///   $EFE5 — (reserved)
+///   $EFE6 — Read asserts ISA TC signal; returned byte is undefined (open-bus)
+///   $EFE7 — Read: bits[3:0] = current I/O-page value; upper bits unused
 pub struct Mmu {
     map: [u8; 1024],
     active_task: u8,
     setup_task: u8,
     enabled: bool,
     open_bus: u8,
+    /// OQ-R1.7 compatibility mode: duplicate edit-window writes into task 0.
+    task0_alias_defect: bool,
+    /// Observable count of `$EFE6` reads (ISA TC signal assertions). The spec
+    /// leaves pulse timing and the returned byte value undefined, so a
+    /// monotonic counter is the side effect a test can observe.
+    tc_signal_count: u32,
 }
 
 impl Mmu {
@@ -39,6 +54,8 @@ impl Mmu {
             setup_task: 0,
             enabled: false,
             open_bus: cfg.open_bus.value,
+            task0_alias_defect: cfg.mmu_task0_alias_defect,
+            tc_signal_count: 0,
         }
     }
 
@@ -61,7 +78,7 @@ impl Mmu {
     }
 
     /// Read from edit window ($EFD0–$EFDF) or control registers ($EFE0–$EFE7).
-    pub fn io_read(&self, offset: u8) -> u8 {
+    pub fn io_read(&mut self, offset: u8) -> u8 {
         match offset {
             0x00..=0x0F => {
                 // Edit window — setup task's map entries (set by $EFE1)
@@ -83,6 +100,16 @@ impl Mmu {
                 let enabled_bit = if self.enabled { 0x80 } else { 0x00 };
                 enabled_bit | (self.active_task & 0x3F)
             }
+            0x16 => {
+                // $EFE6 — reading asserts the ISA TC signal (MEM §5.2); the
+                // returned byte is undefined, so open-bus stands in for it.
+                self.tc_signal_count = self.tc_signal_count.wrapping_add(1);
+                self.open_bus
+            }
+            0x17 => {
+                // $EFE7 — bits[3:0] = current I/O-page value; upper bits unused.
+                IO_PHYSICAL_PAGE & 0x0F
+            }
             _ => self.open_bus,
         }
     }
@@ -94,6 +121,12 @@ impl Mmu {
                 // Edit window — setup task's map entries (set by $EFE1)
                 let idx = (self.setup_task as usize) * 16 + (offset as usize);
                 self.map[idx] = val;
+                if self.task0_alias_defect {
+                    // OQ-R1.7 compatibility quirk: some board revisions also
+                    // write the same entry into task 0, regardless of which
+                    // task is selected for editing (MEM §8). Off by default.
+                    self.map[offset as usize] = val;
+                }
             }
             0x10 => {
                 // $EFE0 — active task register; task mask clamps to 6 bits
@@ -121,5 +154,15 @@ impl Mmu {
 
     pub fn is_enabled(&self) -> bool {
         self.enabled
+    }
+
+    /// Number of `$EFE6` reads observed so far (ISA TC signal assertions).
+    pub fn tc_signal_count(&self) -> u32 {
+        self.tc_signal_count
+    }
+
+    /// Whether the OQ-R1.7 task-0 edit-alias compatibility mode is active.
+    pub fn task0_alias_defect(&self) -> bool {
+        self.task0_alias_defect
     }
 }

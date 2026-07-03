@@ -45,6 +45,7 @@ fn full_config_round_trips_all_top_level_keys_and_open_bus() {
 cpu_subtype = "cmos65c02"
 cpu_hz = 2000000
 mmu_power_on_fill = "zero"
+mmu_task0_alias_defect = true
 rom_bank = "video"
 shadow_addr_low = false
 io_rom_always = true
@@ -65,6 +66,7 @@ value = 255
     assert!(matches!(cfg.cpu_subtype, CpuSubtype::Cmos65c02));
     assert_eq!(cfg.cpu_hz, 2_000_000);
     assert!(matches!(cfg.mmu_power_on_fill, MmuPowerOnFill::Zero));
+    assert_eq!(cfg.mmu_task0_alias_defect, true);
     assert!(matches!(cfg.rom_bank, RomBank::Video));
     assert_eq!(cfg.shadow_addr_low, false);
     assert_eq!(cfg.io_rom_always, true);

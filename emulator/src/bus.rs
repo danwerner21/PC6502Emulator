@@ -1,7 +1,7 @@
 use crate::acia::Acia;
 use crate::config::Config;
 use crate::disk::DiskImage;
-use crate::mmu::Mmu;
+use crate::mmu::{Mmu, IO_PHYSICAL_PAGE, ROM_PHYSICAL_PAGE};
 use crate::peripherals::Peripherals;
 use crate::rom::Rom;
 use crate::rtc::Rtc;
@@ -37,6 +37,13 @@ pub struct Bus {
     rtc: Rtc,
     peripherals: Peripherals,
     open_bus: u8,
+    /// OQ-R0.7 — when true, I/O/ROM decode is derived from the *physical*
+    /// page after MMU translation for every address, so a task that remaps a
+    /// low logical page onto physical `$0E`/`$0F` still reaches I/O/ROM
+    /// instead of aliasing into RAM. When false (default), only the identity
+    /// case is honored: `$E000-$FFFF` decode as I/O/ROM by CPU address alone,
+    /// matching the one case confirmed on hardware (MEM §3.2, R0.7).
+    io_rom_always: bool,
 }
 
 impl Bus {
@@ -51,34 +58,63 @@ impl Bus {
             rtc: Rtc::new(cfg),
             peripherals: Peripherals::new(open_bus),
             open_bus,
+            io_rom_always: cfg.io_rom_always,
         }
     }
 
     pub fn read(&mut self, addr: u16) -> u8 {
+        if self.io_rom_always {
+            if let Some(phys) = self.mmu.translate_addr(addr) {
+                return self.read_physical(phys);
+            }
+        }
         match addr {
             0xF000..=0xFFFF => self.rom.read(addr - 0xF000),
             0xE000..=0xEFFF => self.io_read(addr),
-            _ => {
-                let phys = self.translate_ram(addr);
-                if phys < self.ram.len() {
-                    self.ram[phys]
-                } else {
-                    self.open_bus
-                }
-            }
+            _ => self.phys_read(self.translate_ram(addr)),
         }
     }
 
     pub fn write(&mut self, addr: u16, val: u8) {
+        if self.io_rom_always {
+            if let Some(phys) = self.mmu.translate_addr(addr) {
+                self.write_physical(phys, val);
+                return;
+            }
+        }
         match addr {
             0xF000..=0xFFFF => {} // ROM write protection (BR-8)
             0xE000..=0xEFFF => self.io_write(addr, val),
-            _ => {
-                let phys = self.translate_ram(addr);
-                if phys < self.ram.len() {
-                    self.ram[phys] = val;
-                }
-            }
+            _ => self.ram_write(self.translate_ram(addr), val),
+        }
+    }
+
+    /// Decode a translated physical address by *physical* page, giving I/O
+    /// and ROM overlays precedence over RAM regardless of which logical
+    /// address reached them (OQ-R0.7, `io_rom_always` path only).
+    fn read_physical(&mut self, phys: u32) -> u8 {
+        let page = (phys >> 12) as u8;
+        let offset = (phys & 0x0FFF) as u16;
+        match page {
+            IO_PHYSICAL_PAGE => self.io_read(0xE000 | offset),
+            ROM_PHYSICAL_PAGE => self.rom.read(offset),
+            _ => self.phys_read(phys as usize),
+        }
+    }
+
+    fn write_physical(&mut self, phys: u32, val: u8) {
+        let page = (phys >> 12) as u8;
+        let offset = (phys & 0x0FFF) as u16;
+        match page {
+            IO_PHYSICAL_PAGE => self.io_write(0xE000 | offset, val),
+            ROM_PHYSICAL_PAGE => {} // ROM write protection (BR-8)
+            _ => self.ram_write(phys as usize, val),
+        }
+    }
+
+    fn ram_write(&mut self, phys: usize, val: u8) {
+        if phys < self.ram.len() {
+            self.ram[phys] = val;
         }
     }
 
@@ -159,8 +195,10 @@ impl Bus {
         &mut self.xt_ide
     }
 
-    /// Read directly from the physical RAM array, bypassing the MMU.
-    /// Used by gate tests to verify physical memory written through MMU mappings.
+    /// Read directly from the physical RAM array by physical address,
+    /// bypassing MMU translation and I/O/ROM decode. Used internally once a
+    /// physical page is already known to be plain RAM, and by gate tests to
+    /// verify physical memory written through MMU mappings.
     pub fn phys_read(&self, phys: usize) -> u8 {
         if phys < self.ram.len() {
             self.ram[phys]

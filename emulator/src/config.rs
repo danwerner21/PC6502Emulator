@@ -103,6 +103,13 @@ pub struct Config {
     #[serde(default)]
     pub mmu_power_on_fill: MmuPowerOnFill,
 
+    /// OQ-R1.7 — Task-0 edit-window alias compatibility mode. Some board
+    /// revisions duplicate every `$EFD0-$EFDF` edit-window write into task 0
+    /// as well as the selected setup task. Off by default (the clean
+    /// architectural model); enable only to match an affected board [E5].
+    #[serde(default)]
+    pub mmu_task0_alias_defect: bool,
+
     /// OQ-R0.4 — Active K1 ROM bank at power-on: base or video.
     #[serde(default)]
     pub rom_bank: RomBank,
@@ -160,6 +167,7 @@ impl Default for Config {
             cpu_subtype: CpuSubtype::Nmos6502,
             cpu_hz: 1_000_000,
             mmu_power_on_fill: MmuPowerOnFill::Random,
+            mmu_task0_alias_defect: false,
             rom_bank: RomBank::Base,
             open_bus: OpenBusPolicy::default(),
             shadow_addr_low: true,

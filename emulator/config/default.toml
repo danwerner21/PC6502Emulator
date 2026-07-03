@@ -51,6 +51,14 @@ shadow_addr_low = true
 #         hardware; enable only after physical validation).
 io_rom_always = false
 
+# ── OQ-R1.7 ─────────────────────────────────────────────────────────────────
+# Task-0 edit-window alias compatibility mode.
+# false = clean architectural model — edit-window writes affect only the
+#         selected setup task (default; matches confirmed firmware behaviour).
+# true  = some board revisions duplicate every $EFD0-$EFDF write into task 0
+#         as well; enable only to match an affected board revision.
+mmu_task0_alias_defect = false
+
 # ── OQ-R1.1 ─────────────────────────────────────────────────────────────────
 # ACIA hardware variant: "r6551" or "w65c51n".
 # The W65C51N has a silicon errata that affects the TX-ready bit; the emulator
