@@ -4,7 +4,7 @@ use crate::config::RtcPolicy;
 ///
 /// 16 registers, each storing only the low 4 bits of the written value.
 /// Offsets $0D–$0F are control registers.
-/// Register $0F bit 3: STOP (1 = freeze counter).
+/// Register $0F bit 1: STOP (1 = freeze counter). Bit 3 is TEST, not STOP.
 ///
 /// Clock policies (rtc_policy config):
 ///   host  — mirror the host system clock (Linux wall clock via SystemTime)
@@ -39,7 +39,7 @@ impl Rtc {
         let idx = (offset & 0x0F) as usize;
         self.regs[idx] = val & 0x0F;
         if idx == 0x0F {
-            self.stopped = (val & 0x08) != 0;
+            self.stopped = (val & 0x02) != 0;
         }
     }
 
@@ -64,13 +64,13 @@ impl Rtc {
         self.regs[0x03] = min / 10;
         self.regs[0x04] = hour % 10;
         self.regs[0x05] = hour / 10;
-        self.regs[0x06] = weekday;
-        self.regs[0x07] = day % 10;
-        self.regs[0x08] = day / 10;
-        self.regs[0x09] = month % 10;
-        self.regs[0x0A] = month / 10;
-        self.regs[0x0B] = yr2 % 10;
-        self.regs[0x0C] = yr2 / 10;
+        self.regs[0x06] = day % 10;
+        self.regs[0x07] = day / 10;
+        self.regs[0x08] = month % 10;
+        self.regs[0x09] = month / 10;
+        self.regs[0x0A] = yr2 % 10;
+        self.regs[0x0B] = yr2 / 10;
+        self.regs[0x0C] = weekday;
         // $0D–$0F are control registers; leave them untouched by clock updates.
     }
 }

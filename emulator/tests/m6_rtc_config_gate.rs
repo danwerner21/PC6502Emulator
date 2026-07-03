@@ -19,9 +19,9 @@ fn rtc_host_year_plausible() {
     let mut cfg = Config::default();
     cfg.rtc_policy = RtcPolicy::Host;
     let mut bus = blank_bus(cfg);
-    // Reg $0C = tens digit of 2-digit year, reg $0B = ones digit.
-    let yr_tens = bus.read(0xEF9C) as u16;
-    let yr_ones = bus.read(0xEF9B) as u16;
+    // Reg $0B = tens digit of 2-digit year, reg $0A = ones digit.
+    let yr_tens = bus.read(0xEF9B) as u16;
+    let yr_ones = bus.read(0xEF9A) as u16;
     let two_digit_year = yr_tens * 10 + yr_ones;
     assert!(
         (20..=40).contains(&two_digit_year),
@@ -37,7 +37,7 @@ fn rtc_control_sequence_no_fault() {
     let mut bus = blank_bus(cfg);
     // Write documented control sequence ($02/$00/$00/$01/$05/$04) to RTC
     // offsets $0A–$0F (bus addresses $EF9A–$EF9F).  The last byte ($04) clears
-    // STOP (bit 3 = 0), so the clock is not frozen afterward.
+    // STOP (bit 1 = 0), so the clock is not frozen afterward.
     let seq = [0x02u8, 0x00, 0x00, 0x01, 0x05, 0x04];
     for (i, &val) in seq.iter().enumerate() {
         bus.write(0xEF9A + i as u16, val);
@@ -63,13 +63,13 @@ fn rtc_fixed_matches_epoch() {
     assert_eq!(bus.read(0xEF93), 3, "min tens");
     assert_eq!(bus.read(0xEF94), 0, "hour ones");
     assert_eq!(bus.read(0xEF95), 1, "hour tens");
-    assert_eq!(bus.read(0xEF96), 4, "weekday (Wed=4)");
-    assert_eq!(bus.read(0xEF97), 5, "day ones (15)");
-    assert_eq!(bus.read(0xEF98), 1, "day tens (15)");
-    assert_eq!(bus.read(0xEF99), 1, "month ones (Jan)");
-    assert_eq!(bus.read(0xEF9A), 0, "month tens (Jan)");
-    assert_eq!(bus.read(0xEF9B), 5, "year ones (25)");
-    assert_eq!(bus.read(0xEF9C), 2, "year tens (25)");
+    assert_eq!(bus.read(0xEF96), 5, "day ones (15)");
+    assert_eq!(bus.read(0xEF97), 1, "day tens (15)");
+    assert_eq!(bus.read(0xEF98), 1, "month ones (Jan)");
+    assert_eq!(bus.read(0xEF99), 0, "month tens (Jan)");
+    assert_eq!(bus.read(0xEF9A), 5, "year ones (25)");
+    assert_eq!(bus.read(0xEF9B), 2, "year tens (25)");
+    assert_eq!(bus.read(0xEF9C), 4, "weekday (Wed=4)");
 }
 
 // REQ-M6 item 3 / BR-7: CH375 reads do not crash; return 0x00 (no USB device present).
